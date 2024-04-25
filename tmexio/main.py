@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Callable
 from logging import Logger
 from typing import Any, Literal
@@ -9,7 +11,43 @@ from tmexio.specs import HandlerSpec
 from tmexio.types import AsyncEventHandler
 
 
-class TMEXIO:
+class EventRouter:
+    def __init__(self) -> None:
+        self.event_handlers: dict[str, tuple[AsyncEventHandler, HandlerSpec]] = {}
+
+    def add_handler(
+        self,
+        event_name: str,
+        handler: AsyncEventHandler,
+        spec: HandlerSpec,
+    ) -> None:
+        self.event_handlers[event_name] = handler, spec
+
+    def on(
+        self,
+        event_name: str,
+        summary: str | None = None,
+        description: str | None = None,
+    ) -> Callable[[AsyncEventHandler], AsyncEventHandler]:
+        def on_inner(handler: AsyncEventHandler) -> AsyncEventHandler:
+            self.add_handler(
+                event_name=event_name,
+                handler=handler,
+                spec=HandlerSpec(
+                    summary=summary,
+                    description=description,
+                ),
+            )
+            return handler
+
+        return on_inner
+
+    def include_router(self, router: EventRouter) -> None:
+        for event_name, (handler, spec) in router.event_handlers.items():
+            self.add_handler(event_name, handler, spec)
+
+
+class TMEXIO(EventRouter):
     def __init__(
         self,
         client_manager: AsyncManager | None = None,
@@ -20,6 +58,7 @@ class TMEXIO:
         serializer: type[Packet] = Packet,
         **kwargs: Any,
     ) -> None:
+        super().__init__()
         self.backend = AsyncServer(
             client_manager=client_manager,
             logger=logger,
@@ -29,28 +68,13 @@ class TMEXIO:
             engineio_logger=engineio_logger,
             **kwargs,
         )
-        self.handler_specs: list[HandlerSpec] = []
 
-    def add_handler(self, handler: AsyncEventHandler, spec: HandlerSpec) -> None:
-        # TODO support for multiple namespaces
-        self.backend.on(event=spec.event_name, handler=handler, namespace="/")
-        self.handler_specs.append(spec)
-
-    def on(
+    def add_handler(
         self,
         event_name: str,
-        summary: str | None = None,
-        description: str | None = None,
-    ) -> Callable[[AsyncEventHandler], AsyncEventHandler]:
-        def on_inner(handler: AsyncEventHandler) -> AsyncEventHandler:
-            self.add_handler(
-                handler,
-                spec=HandlerSpec(
-                    event_name=event_name,
-                    summary=summary,
-                    description=description,
-                ),
-            )
-            return handler
-
-        return on_inner
+        handler: AsyncEventHandler,
+        spec: HandlerSpec,
+    ) -> None:
+        # TODO support for multiple namespaces
+        self.backend.on(event=event_name, handler=handler, namespace="/")
+        super().add_handler(event_name, handler, spec)

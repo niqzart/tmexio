@@ -1,5 +1,6 @@
-from tmexio.main import TMEXIO
+from tmexio.main import TMEXIO, EventRouter
 
 __all__ = [
     "TMEXIO",
+    "EventRouter",
 ]
