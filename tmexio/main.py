@@ -5,6 +5,7 @@ from typing import Any, Literal
 from socketio import AsyncManager, AsyncServer  # type: ignore[import-untyped]
 from socketio.packet import Packet  # type: ignore[import-untyped]
 
+from tmexio.specs import HandlerSpec
 from tmexio.types import AsyncEventHandler
 
 
@@ -28,23 +29,28 @@ class TMEXIO:
             engineio_logger=engineio_logger,
             **kwargs,
         )
+        self.handler_specs: list[HandlerSpec] = []
 
-    def add_handler(
-        self,
-        event_name: str,
-        handler: AsyncEventHandler,
-    ) -> None:
+    def add_handler(self, handler: AsyncEventHandler, spec: HandlerSpec) -> None:
         # TODO support for multiple namespaces
-        self.backend.on(event=event_name, handler=handler, namespace="/")
+        self.backend.on(event=spec.event_name, handler=handler, namespace="/")
+        self.handler_specs.append(spec)
 
     def on(
         self,
         event_name: str,
-        # TODO summary: str | None = None,
-        # TODO description: str | None = None,
+        summary: str | None = None,
+        description: str | None = None,
     ) -> Callable[[AsyncEventHandler], AsyncEventHandler]:
         def on_inner(handler: AsyncEventHandler) -> AsyncEventHandler:
-            self.add_handler(event_name, handler)
+            self.add_handler(
+                handler,
+                spec=HandlerSpec(
+                    event_name=event_name,
+                    summary=summary,
+                    description=description,
+                ),
+            )
             return handler
 
         return on_inner
