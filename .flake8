@@ -29,6 +29,8 @@ extend-ignore =
   U100
   # fails to understand enums
   WPS115
+  # fails to understand __init__ in packages
+  WPS410 WPS412
   # fails to understand overloading
   WPS428
   # fails to understand typing with pipe-union
