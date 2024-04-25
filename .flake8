@@ -31,6 +31,8 @@ extend-ignore =
   WPS115
   # fails to understand overloading
   WPS428
+  # fails to understand typing with pipe-union
+  WPS465
   # fails to same-name class and instance attributes (pydantic & sqlalchemy)
   WPS601
   # too many
