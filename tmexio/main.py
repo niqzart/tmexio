@@ -7,6 +7,7 @@ from typing import Any, Literal
 from socketio import AsyncManager, AsyncServer  # type: ignore[import-untyped]
 from socketio.packet import Packet  # type: ignore[import-untyped]
 
+from tmexio.exceptions import EventException
 from tmexio.specs import HandlerSpec
 from tmexio.types import AsyncEventHandler
 
@@ -28,6 +29,7 @@ class EventRouter:
         event_name: str,
         summary: str | None = None,
         description: str | None = None,
+        exceptions: list[EventException] | None = None,
     ) -> Callable[[AsyncEventHandler], AsyncEventHandler]:
         def on_inner(handler: AsyncEventHandler) -> AsyncEventHandler:
             self.add_handler(
@@ -36,6 +38,7 @@ class EventRouter:
                 spec=HandlerSpec(
                     summary=summary,
                     description=description,
+                    exceptions=exceptions,
                 ),
             )
             return handler

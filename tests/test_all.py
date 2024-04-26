@@ -2,16 +2,27 @@ import pytest
 from pydantic_marshals.contains import assert_contains
 
 from tests.utils import AsyncSIOTestClient
+from tmexio.exceptions import EventException
 
 pytestmark = pytest.mark.anyio
 
 
-async def test_all(client: AsyncSIOTestClient) -> None:
+async def test_happy(client: AsyncSIOTestClient) -> None:
     args = {"something": "wow"}, ["hello"]
     assert_contains(
         await client.emit("hello", *args),
         {
             "sid": client.sid,
-            "args": list(args),
+            "first": args[0],
+            "other": [args[1]],
         },
+    )
+
+
+async def test_parsing_exception(client: AsyncSIOTestClient) -> None:
+    with pytest.raises(EventException) as exc_info:
+        await client.emit("hello")
+    assert_contains(
+        exc_info.value.ack_data,
+        [422, "Parsing Exception"],
     )
