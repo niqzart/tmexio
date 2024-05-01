@@ -10,6 +10,7 @@ from asgiref.sync import sync_to_async
 from socketio.packet import Packet  # type: ignore[import-untyped]
 
 from tmexio.exceptions import EventException
+from tmexio.server import AsyncServer, AsyncSocket
 from tmexio.specs import HandlerSpec
 from tmexio.types import ASGIAppProtocol, DataOrTuple, DataType
 
@@ -18,18 +19,29 @@ class Sid(str):
     pass
 
 
+class Destinations:
+    def __init__(self) -> None:
+        self.sid_destinations: list[str] = []
+        self.server_destinations: list[str] = []
+        self.socket_destinations: list[str] = []
+
+
 class AsyncEventHandler:
     def __init__(
         self,
         async_callable: Callable[..., Awaitable[Any]],
-        sid_destinations: list[str],
+        destinations: Destinations,
     ) -> None:
         self.async_callable = async_callable
-        self.sid_destinations = sid_destinations
+        self.destinations = destinations
 
-    async def __call__(self, sid: str, *args: DataType) -> DataOrTuple:
-        kwargs = {name: sid for name in self.sid_destinations}
-        return await self.async_callable(*args, **kwargs)  # type: ignore[no-any-return]
+    async def __call__(self, socket: AsyncSocket, *args: DataType) -> DataOrTuple:
+        return await self.async_callable(  # type: ignore[no-any-return]
+            *args,
+            **{name: socket.sid for name in self.destinations.sid_destinations},
+            **{name: socket.server for name in self.destinations.server_destinations},
+            **{name: socket for name in self.destinations.socket_destinations},
+        )
         # TODO pack result from Any to DataOrTuple
 
 
@@ -43,7 +55,7 @@ class HandlerBuilder:
     ) -> None:
         self.function = function
         self.signature: Signature = signature(function)
-        self.sid_destinations: list[str] = []
+        self.destinations = Destinations()
 
         self.spec = HandlerSpec(
             summary=summary,
@@ -60,7 +72,11 @@ class HandlerBuilder:
             if len(args) == 2:
                 pass  # TODO
         elif parameter.annotation == Sid:
-            self.sid_destinations.append(parameter.name)
+            self.destinations.sid_destinations.append(parameter.name)
+        elif parameter.annotation == AsyncServer:
+            self.destinations.server_destinations.append(parameter.name)
+        elif parameter.annotation == AsyncSocket:
+            self.destinations.socket_destinations.append(parameter.name)
         # TODO arguments
 
     def parse_return_annotation(self) -> None:
@@ -81,7 +97,7 @@ class HandlerBuilder:
         else:
             raise TypeError("Handler is not callable")
 
-        return AsyncEventHandler(async_callable, self.sid_destinations)
+        return AsyncEventHandler(async_callable, self.destinations)
 
     def build_spec(self) -> HandlerSpec:
         return self.spec
@@ -148,6 +164,7 @@ class TMEXIO(EventRouter):
             engineio_logger=engineio_logger,
             **kwargs,
         )
+        self.server = AsyncServer(backend=self.backend)
 
     def add_handler(
         self,
@@ -155,10 +172,12 @@ class TMEXIO(EventRouter):
         handler: AsyncEventHandler,
         spec: HandlerSpec,
     ) -> None:
+        async def add_handler_inner(sid: str, *args: DataType) -> DataOrTuple:
+            return await handler(AsyncSocket(self.server, sid), *args)
+
         self.backend.on(
             event=event_name,
-            # coroutine check in socketio doesn't check the __call__ method
-            handler=handler.__call__,  # noqa: WPS609
+            handler=add_handler_inner,
             namespace="/",  # TODO support for multiple namespaces
         )
 
