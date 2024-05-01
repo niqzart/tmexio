@@ -26,3 +26,11 @@ async def test_parsing_exception(client: AsyncSIOTestClient) -> None:
         exc_info.value.ack_data,
         [422, "Parsing Exception"],
     )
+
+
+async def test_happy_sync(client: AsyncSIOTestClient) -> None:
+    args = [{"something": "wow"}, ["hello"]]
+    assert_contains(
+        await client.emit("hello-sync", *args),
+        {"sid": client.sid, "args": args},
+    )

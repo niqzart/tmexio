@@ -20,6 +20,11 @@ async def handle_hello(sid: str, *args: DataType) -> DataOrTuple:
     }
 
 
+@router.on("hello-sync")
+def handle_sync_hello(sid: str, *args: DataType) -> DataOrTuple:
+    return {"sid": sid, "args": list(args)}
+
+
 tmex = TMEXIO()
 tmex.include_router(router)
 
