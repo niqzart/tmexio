@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from inspect import Parameter, Signature, iscoroutinefunction, signature
 from logging import Logger
 from typing import Annotated, Any, Literal, get_args, get_origin
@@ -11,11 +11,26 @@ from socketio.packet import Packet  # type: ignore[import-untyped]
 
 from tmexio.exceptions import EventException
 from tmexio.specs import HandlerSpec
-from tmexio.types import AsyncEventHandler, DataOrTuple, DataType
+from tmexio.types import DataOrTuple, DataType
 
 
 class Sid(str):
     pass
+
+
+class AsyncEventHandler:
+    def __init__(
+        self,
+        async_callable: Callable[..., Awaitable[Any]],
+        sid_destinations: list[str],
+    ) -> None:
+        self.async_callable = async_callable
+        self.sid_destinations = sid_destinations
+
+    async def __call__(self, sid: str, *args: DataType) -> DataOrTuple:
+        kwargs = {name: sid for name in self.sid_destinations}
+        return await self.async_callable(*args, **kwargs)  # type: ignore[no-any-return]
+        # TODO pack result from Any to DataOrTuple
 
 
 class HandlerBuilder:
@@ -66,12 +81,7 @@ class HandlerBuilder:
         else:
             raise TypeError("Handler is not callable")
 
-        async def handler(sid: str, *args: DataType) -> DataOrTuple:
-            kwargs = {name: sid for name in self.sid_destinations}
-            return await async_callable(*args, **kwargs)  # type: ignore[no-any-return]
-            # TODO pack result from Any to DataOrTuple
-
-        return handler
+        return AsyncEventHandler(async_callable, self.sid_destinations)
 
     def build_spec(self) -> HandlerSpec:
         return self.spec
@@ -146,5 +156,10 @@ class TMEXIO(EventRouter):
         spec: HandlerSpec,
     ) -> None:
         # TODO support for multiple namespaces
-        self.backend.on(event=event_name, handler=handler, namespace="/")
+        self.backend.on(
+            event=event_name,
+            # coroutine check in socketio doesn't check the __call__ method
+            handler=handler.__call__,  # noqa: WPS609
+            namespace="/",
+        )
         super().add_handler(event_name, handler, spec)
