@@ -7,6 +7,12 @@ AnyCallable = Callable[..., Any]
 DataType = None | int | str | bytes | dict["DataType", "DataType"] | list["DataType"]
 DataOrTuple = DataType | tuple[DataType, ...]
 
+
+class CallbackProtocol(Protocol):
+    def __call__(self, *args: DataType) -> None:
+        pass
+
+
 Scope = MutableMapping[str, Any]
 Message = MutableMapping[str, Any]
 
