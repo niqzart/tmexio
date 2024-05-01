@@ -5,13 +5,13 @@ from inspect import Parameter, Signature, iscoroutinefunction, signature
 from logging import Logger
 from typing import Annotated, Any, Literal, get_args, get_origin
 
+import socketio  # type: ignore[import-untyped]
 from asgiref.sync import sync_to_async
-from socketio import AsyncManager, AsyncServer  # type: ignore[import-untyped]
 from socketio.packet import Packet  # type: ignore[import-untyped]
 
 from tmexio.exceptions import EventException
 from tmexio.specs import HandlerSpec
-from tmexio.types import DataOrTuple, DataType
+from tmexio.types import ASGIAppProtocol, DataOrTuple, DataType
 
 
 class Sid(str):
@@ -130,7 +130,7 @@ class EventRouter:
 class TMEXIO(EventRouter):
     def __init__(
         self,
-        client_manager: AsyncManager | None = None,
+        client_manager: socketio.AsyncManager | None = None,
         logger: bool | Logger = False,
         engineio_logger: bool | Logger = False,
         namespaces: Literal["*"] | list[str] | None = None,
@@ -139,7 +139,7 @@ class TMEXIO(EventRouter):
         **kwargs: Any,
     ) -> None:
         super().__init__()
-        self.backend = AsyncServer(
+        self.backend = socketio.AsyncServer(
             client_manager=client_manager,
             logger=logger,
             namespaces=namespaces,
@@ -155,11 +155,26 @@ class TMEXIO(EventRouter):
         handler: AsyncEventHandler,
         spec: HandlerSpec,
     ) -> None:
-        # TODO support for multiple namespaces
         self.backend.on(
             event=event_name,
             # coroutine check in socketio doesn't check the __call__ method
             handler=handler.__call__,  # noqa: WPS609
-            namespace="/",
+            namespace="/",  # TODO support for multiple namespaces
         )
-        super().add_handler(event_name, handler, spec)
+
+    def build_asgi_app(
+        self,
+        other_asgi_app: ASGIAppProtocol | None = None,
+        static_files: dict[str, str] | None = None,
+        socketio_path: str | None = "socket.io",
+        on_startup: Callable[[], Awaitable[None]] | None = None,
+        on_shutdown: Callable[[], Awaitable[None]] | None = None,
+    ) -> ASGIAppProtocol:
+        return socketio.ASGIApp(  # type: ignore[no-any-return]
+            socketio_server=self.backend,
+            other_asgi_app=other_asgi_app,
+            static_files=static_files,
+            socketio_path=socketio_path,
+            on_startup=on_startup,
+            on_shutdown=on_shutdown,
+        )

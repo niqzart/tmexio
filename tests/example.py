@@ -1,5 +1,3 @@
-from socketio import ASGIApp  # type: ignore[import-untyped]
-
 from tmexio import TMEXIO, EventRouter
 from tmexio.exceptions import EventException
 from tmexio.main import Sid
@@ -30,4 +28,4 @@ def handle_sync_hello(*args: DataType) -> DataOrTuple:
 tmex = TMEXIO()
 tmex.include_router(router)
 
-app = ASGIApp(socketio_server=tmex.backend)
+app = tmex.build_asgi_app()
