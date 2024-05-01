@@ -9,43 +9,22 @@ import socketio  # type: ignore[import-untyped]
 from asgiref.sync import sync_to_async
 from socketio.packet import Packet  # type: ignore[import-untyped]
 
+from tmexio import markers
+from tmexio.event_handlers import AsyncEventHandler, Destinations
 from tmexio.exceptions import EventException
 from tmexio.server import AsyncServer, AsyncSocket
 from tmexio.specs import HandlerSpec
+from tmexio.structures import ClientEvent
 from tmexio.types import ASGIAppProtocol, DataOrTuple, DataType
 
 
-class Sid(str):
-    pass
-
-
-class Destinations:
-    def __init__(self) -> None:
-        self.sid_destinations: list[str] = []
-        self.server_destinations: list[str] = []
-        self.socket_destinations: list[str] = []
-
-
-class AsyncEventHandler:
-    def __init__(
-        self,
-        async_callable: Callable[..., Awaitable[Any]],
-        destinations: Destinations,
-    ) -> None:
-        self.async_callable = async_callable
-        self.destinations = destinations
-
-    async def __call__(self, socket: AsyncSocket, *args: DataType) -> DataOrTuple:
-        return await self.async_callable(  # type: ignore[no-any-return]
-            *args,
-            **{name: socket.sid for name in self.destinations.sid_destinations},
-            **{name: socket.server for name in self.destinations.server_destinations},
-            **{name: socket for name in self.destinations.socket_destinations},
-        )
-        # TODO pack result from Any to DataOrTuple
-
-
 class HandlerBuilder:
+    type_to_marker: dict[type[Any], markers.Marker[Any]] = {
+        AsyncServer: markers.AsyncServerMarker(),
+        AsyncSocket: markers.AsyncSocketMarker(),
+        ClientEvent: markers.ClientEventMarker(),
+    }
+
     def __init__(
         self,
         function: Callable[..., Any],
@@ -63,20 +42,17 @@ class HandlerBuilder:
             exceptions=exceptions,
         )
 
-    def parse_parameter(self, parameter: Parameter) -> None:
-        # TODO `if parameter.kind != parameter.POSITIONAL_OR_KEYWORD:`
-        #  `raise TypeError(f"{parameter.kind} parameters are not supported")`
+    def parse_parameter_annotation(self, name: str, annotation: Any) -> None:
+        annotation = self.type_to_marker.get(annotation, annotation)
+        if isinstance(annotation, markers.Marker):
+            self.destinations.add_marker_destination(annotation, name)
 
-        if get_origin(parameter.annotation) is Annotated:
-            args = get_args(parameter.annotation)
-            if len(args) == 2:
-                pass  # TODO
-        elif parameter.annotation == Sid:
-            self.destinations.sid_destinations.append(parameter.name)
-        elif parameter.annotation == AsyncServer:
-            self.destinations.server_destinations.append(parameter.name)
-        elif parameter.annotation == AsyncSocket:
-            self.destinations.socket_destinations.append(parameter.name)
+    def parse_parameter(self, parameter: Parameter) -> None:
+        args = get_args(parameter.annotation)
+        if get_origin(parameter.annotation) is Annotated and len(args) == 2:
+            self.parse_parameter_annotation(parameter.name, args[1])
+        elif isinstance(parameter.annotation, type):
+            self.parse_parameter_annotation(parameter.name, parameter.annotation)
         # TODO arguments
 
     def parse_return_annotation(self) -> None:
@@ -173,7 +149,7 @@ class TMEXIO(EventRouter):
         spec: HandlerSpec,
     ) -> None:
         async def add_handler_inner(sid: str, *args: DataType) -> DataOrTuple:
-            return await handler(AsyncSocket(self.server, sid), *args)
+            return await handler(ClientEvent(self.server, sid, *args))
 
         self.backend.on(
             event=event_name,

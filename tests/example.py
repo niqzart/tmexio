@@ -1,7 +1,5 @@
-from tmexio import TMEXIO, EventRouter
+from tmexio import TMEXIO, AsyncServer, AsyncSocket, EventRouter, Sid
 from tmexio.exceptions import EventException
-from tmexio.main import Sid
-from tmexio.server import AsyncServer, AsyncSocket
 from tmexio.types import DataOrTuple, DataType
 
 router = EventRouter()
