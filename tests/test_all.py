@@ -13,6 +13,7 @@ async def test_happy(client: AsyncSIOTestClient) -> None:
         await client.emit("hello", *args),
         {
             "sid": client.sid,
+            "sid2": client.sid,
             "first": args[0],
             "other": [args[1]],
         },
@@ -32,5 +33,5 @@ async def test_happy_sync(client: AsyncSIOTestClient) -> None:
     args = [{"something": "wow"}, ["hello"]]
     assert_contains(
         await client.emit("hello-sync", *args),
-        {"sid": client.sid, "args": args},
+        {"args": args},
     )

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from inspect import iscoroutinefunction
+from inspect import Parameter, Signature, iscoroutinefunction, signature
 from logging import Logger
-from typing import Any, Literal
+from typing import Annotated, Any, Literal, get_args, get_origin
 
 from asgiref.sync import sync_to_async
 from socketio import AsyncManager, AsyncServer  # type: ignore[import-untyped]
@@ -12,6 +12,10 @@ from socketio.packet import Packet  # type: ignore[import-untyped]
 from tmexio.exceptions import EventException
 from tmexio.specs import HandlerSpec
 from tmexio.types import AsyncEventHandler, DataOrTuple, DataType
+
+
+class Sid(str):
+    pass
 
 
 class HandlerBuilder:
@@ -23,13 +27,38 @@ class HandlerBuilder:
         exceptions: list[EventException],
     ) -> None:
         self.function = function
+        self.signature: Signature = signature(function)
+        self.sid_destinations: list[str] = []
+
         self.spec = HandlerSpec(
             summary=summary,
             description=description,
             exceptions=exceptions,
         )
 
+    def parse_parameter(self, parameter: Parameter) -> None:
+        # TODO `if parameter.kind != parameter.POSITIONAL_OR_KEYWORD:`
+        #  `raise TypeError(f"{parameter.kind} parameters are not supported")`
+
+        if get_origin(parameter.annotation) is Annotated:
+            args = get_args(parameter.annotation)
+            if len(args) == 2:
+                pass  # TODO
+        elif parameter.annotation == Sid:
+            self.sid_destinations.append(parameter.name)
+        # TODO arguments
+
+    def parse_return_annotation(self) -> None:
+        pass  # TODO self.signature.return_annotation
+
+    def parse_signature(self) -> None:
+        for parameter in self.signature.parameters.values():
+            self.parse_parameter(parameter)
+        self.parse_return_annotation()
+
     def build_handler(self) -> AsyncEventHandler:
+        self.parse_signature()
+
         if iscoroutinefunction(self.function):
             async_callable = self.function
         elif callable(self.function):
@@ -38,8 +67,9 @@ class HandlerBuilder:
             raise TypeError("Handler is not callable")
 
         async def handler(sid: str, *args: DataType) -> DataOrTuple:
+            kwargs = {name: sid for name in self.sid_destinations}
+            return await async_callable(*args, **kwargs)  # type: ignore[no-any-return]
             # TODO pack result from Any to DataOrTuple
-            return await async_callable(sid, *args)  # type: ignore[no-any-return]
 
         return handler
 
