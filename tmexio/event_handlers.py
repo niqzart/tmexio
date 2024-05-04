@@ -3,34 +3,42 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from pydantic import BaseModel
+
 from tmexio.markers import Marker
 from tmexio.structures import ClientEvent
 from tmexio.types import DataOrTuple
-
-
-class Destinations:
-    def __init__(self) -> None:
-        self.markers: dict[Marker[Any], list[str]] = {}
-
-    def add_marker_destination(self, marker: Marker[Any], destination: str) -> None:
-        self.markers.setdefault(marker, []).append(destination)
 
 
 class AsyncEventHandler:
     def __init__(
         self,
         async_callable: Callable[..., Awaitable[Any]],
-        destinations: Destinations,
+        marker_destinations: list[tuple[Marker[Any], list[str]]],
+        body_model: type[BaseModel],
+        body_destinations: list[tuple[str, list[str]]],
     ) -> None:
         self.async_callable = async_callable
-        self.destinations = destinations
+        self.marker_destinations = marker_destinations
+        self.body_model = body_model
+        self.body_destinations = body_destinations
 
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
+        if len(event.args) != 1:  # TODO convert to 422
+            raise NotImplementedError("Multiple arguments are not supported")
+
+        body = self.body_model.model_validate(event.args[0])
+
         kwargs: dict[str, Any] = {}
-        for marker, parameter_names in self.destinations.markers.items():
+        for field_name, parameter_names in self.body_destinations:
+            value = getattr(body, field_name, None)  # TODO replace fallback with error
+            for name in parameter_names:
+                kwargs[name] = value
+
+        for marker, parameter_names in self.marker_destinations:
             value = marker.extract(event)
             for name in parameter_names:
                 kwargs[name] = value
 
-        return await self.async_callable(*event.args, **kwargs)  # type: ignore[no-any-return]
+        return await self.async_callable(**kwargs)  # type: ignore[no-any-return]
         # TODO pack result from Any to DataOrTuple

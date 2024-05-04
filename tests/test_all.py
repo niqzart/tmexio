@@ -8,9 +8,9 @@ pytestmark = pytest.mark.anyio
 
 
 async def test_happy(client: AsyncSIOTestClient) -> None:
-    args = {"something": "wow"}, ["hello"]
+    args = ["something", "wow"]
     assert_contains(
-        await client.emit("hello", *args),
+        await client.emit("hello", {"args": args}),
         {
             "sid": client.sid,
             "sid2": client.sid,
@@ -23,7 +23,7 @@ async def test_happy(client: AsyncSIOTestClient) -> None:
 
 async def test_parsing_exception(client: AsyncSIOTestClient) -> None:
     with pytest.raises(EventException) as exc_info:
-        await client.emit("hello")
+        await client.emit("hello", {"args": []})
     assert_contains(
         exc_info.value.ack_data,
         [422, "Parsing Exception"],
@@ -31,8 +31,8 @@ async def test_parsing_exception(client: AsyncSIOTestClient) -> None:
 
 
 async def test_happy_sync(client: AsyncSIOTestClient) -> None:
-    args = [{"something": "wow"}, ["hello"]]
+    args = ["something", "wow"]
     assert_contains(
-        await client.emit("hello-sync", *args),
+        await client.emit("hello-sync", {"args": args}),
         {"args": args, "rooms": [client.sid]},
     )

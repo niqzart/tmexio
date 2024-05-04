@@ -7,15 +7,52 @@ from typing import Annotated, Any, Literal, get_args, get_origin
 
 import socketio  # type: ignore[import-untyped]
 from asgiref.sync import sync_to_async
+from pydantic import BaseModel, create_model
 from socketio.packet import Packet  # type: ignore[import-untyped]
 
 from tmexio import markers
-from tmexio.event_handlers import AsyncEventHandler, Destinations
+from tmexio.event_handlers import AsyncEventHandler
 from tmexio.exceptions import EventException
 from tmexio.server import AsyncServer, AsyncSocket
 from tmexio.specs import HandlerSpec
 from tmexio.structures import ClientEvent
 from tmexio.types import ASGIAppProtocol, DataOrTuple, DataType
+
+
+class Destinations:
+    def __init__(self) -> None:
+        self.markers: dict[markers.Marker[Any], set[str]] = {}
+        self.body_annotations: dict[str, Any] = {}
+        self.body_destinations: dict[str, set[str]] = {}
+
+    def add_marker_destination(
+        self, marker: markers.Marker[Any], destination: str
+    ) -> None:
+        self.markers.setdefault(marker, set()).add(destination)
+
+    def add_body_field(self, field_name: str, parameter_annotation: Any) -> None:
+        if get_origin(parameter_annotation) is not Annotated:
+            parameter_annotation = parameter_annotation, ...
+        self.body_annotations[field_name] = parameter_annotation
+        self.body_destinations.setdefault(field_name, set()).add(field_name)
+
+    def build_marker_destinations(self) -> list[tuple[markers.Marker[Any], list[str]]]:
+        return [
+            (marker, list(destinations))
+            for marker, destinations in self.markers.items()
+        ]
+
+    def build_body_model(self) -> type[BaseModel]:
+        return create_model(
+            "Model",  # TODO better naming
+            **self.body_annotations,
+        )
+
+    def build_body_destinations(self) -> list[tuple[str, list[str]]]:
+        return [
+            (field, list(destinations))
+            for field, destinations in self.body_destinations.items()
+        ]
 
 
 class HandlerBuilder:
@@ -42,18 +79,22 @@ class HandlerBuilder:
             exceptions=exceptions,
         )
 
-    def parse_parameter_annotation(self, name: str, annotation: Any) -> None:
-        annotation = self.type_to_marker.get(annotation, annotation)
-        if isinstance(annotation, markers.Marker):
-            self.destinations.add_marker_destination(annotation, name)
-
     def parse_parameter(self, parameter: Parameter) -> None:
-        args = get_args(parameter.annotation)
-        if get_origin(parameter.annotation) is Annotated and len(args) == 2:
-            self.parse_parameter_annotation(parameter.name, args[1])
-        elif isinstance(parameter.annotation, type):
-            self.parse_parameter_annotation(parameter.name, parameter.annotation)
-        # TODO arguments
+        annotation = parameter.annotation
+        if isinstance(annotation, type):
+            marker = self.type_to_marker.get(annotation)
+            if marker is not None:
+                annotation = Annotated[annotation, marker]
+
+        args = get_args(annotation)
+        if (  # noqa: WPS337
+            get_origin(annotation) is Annotated
+            and len(args) == 2
+            and isinstance(args[1], markers.Marker)
+        ):
+            self.destinations.add_marker_destination(args[1], parameter.name)
+        else:
+            self.destinations.add_body_field(parameter.name, parameter.annotation)
 
     def parse_return_annotation(self) -> None:
         pass  # TODO self.signature.return_annotation
@@ -73,7 +114,12 @@ class HandlerBuilder:
         else:
             raise TypeError("Handler is not callable")
 
-        return AsyncEventHandler(async_callable, self.destinations)
+        return AsyncEventHandler(
+            async_callable=async_callable,
+            marker_destinations=self.destinations.build_marker_destinations(),
+            body_model=self.destinations.build_body_model(),
+            body_destinations=self.destinations.build_body_destinations(),
+        )
 
     def build_spec(self) -> HandlerSpec:
         return self.spec

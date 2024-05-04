@@ -1,6 +1,6 @@
 from tmexio import TMEXIO, AsyncServer, AsyncSocket, EventRouter, Sid
 from tmexio.exceptions import EventException
-from tmexio.types import DataOrTuple, DataType
+from tmexio.types import DataOrTuple
 
 router = EventRouter()
 
@@ -9,7 +9,7 @@ parsing_exception = EventException(422, "Parsing Exception")
 
 @router.on("hello", exceptions=[parsing_exception])
 async def handle_hello(
-    *args: DataType,
+    args: list[str],
     sid: Sid,
     sid2: Sid,
     socket: AsyncSocket,
@@ -29,7 +29,7 @@ async def handle_hello(
 
 
 @router.on("hello-sync")
-def handle_sync_hello(*args: DataType, socket: AsyncSocket) -> DataOrTuple:
+def handle_sync_hello(args: list[str], socket: AsyncSocket) -> DataOrTuple:
     return {"args": list(args), "rooms": list(socket.rooms())}
 
 
