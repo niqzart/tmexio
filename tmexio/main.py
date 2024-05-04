@@ -42,7 +42,9 @@ class Destinations:
             for marker, destinations in self.markers.items()
         ]
 
-    def build_body_model(self) -> type[BaseModel]:
+    def build_body_model(self) -> type[BaseModel] | None:
+        if not self.body_annotations:
+            return None
         return create_model(
             "Model",  # TODO better naming
             **self.body_annotations,

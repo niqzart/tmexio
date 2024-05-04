@@ -16,7 +16,7 @@ class AsyncEventHandler:
         self,
         async_callable: Callable[..., Awaitable[Any]],
         marker_destinations: list[tuple[Marker[Any], list[str]]],
-        body_model: type[BaseModel],
+        body_model: type[BaseModel] | None,
         body_destinations: list[tuple[str, list[str]]],
         ack_packager: BasePackager[Any],
     ) -> None:
@@ -27,16 +27,22 @@ class AsyncEventHandler:
         self.ack_packager = ack_packager
 
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
-        if len(event.args) != 1:  # TODO convert to 422
-            raise NotImplementedError("Multiple arguments are not supported")
-
-        body = self.body_model.model_validate(event.args[0])
-
         kwargs: dict[str, Any] = {}
-        for field_name, parameter_names in self.body_destinations:
-            value = getattr(body, field_name, None)  # TODO replace fallback with error
-            for name in parameter_names:
-                kwargs[name] = value
+
+        if self.body_model is None:
+            if len(event.args) != 0:  # TODO convert to 422
+                raise NotImplementedError("No arguments are required")
+        else:
+            if len(event.args) != 1:  # TODO convert to 422
+                raise NotImplementedError("Multiple arguments are not supported")
+
+            body = self.body_model.model_validate(event.args[0])
+            for field_name, parameter_names in self.body_destinations:
+                value = getattr(
+                    body, field_name, None
+                )  # TODO replace fallback with error
+                for name in parameter_names:
+                    kwargs[name] = value
 
         for marker, parameter_names in self.marker_destinations:
             value = marker.extract(event)
