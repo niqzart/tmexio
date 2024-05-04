@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager, contextmanager
 from typing import Any, Self
 from unittest.mock import patch
 
+from engineio import packet as eio_packet  # type: ignore[import-untyped]
 from socketio import AsyncServer, packet  # type: ignore[import-untyped]
 
 
@@ -13,6 +14,7 @@ class AsyncSIOTestClient:
         self.eio_sid: str = eio_sid
         self.events: dict[str, list[Any]] = {}
         self.packets: dict[int, list[packet.Packet]] = {}
+        self.eio_packets: dict[int, list[eio_packet.Packet]] = {}
 
     @property
     def sid(self) -> str:
@@ -43,22 +45,28 @@ class AsyncSIOTestServer:
         self.server: AsyncServer = server
         self.clients: dict[str, AsyncSIOTestClient] = {}
 
-    async def _send_packet(self, eio_sid: str, pkt: packet.Packet) -> None:
+    async def _send_eio_packet(self, eio_sid: str, eio_pkt: eio_packet.Packet) -> None:
         # TODO encode packets before parsing again
 
         client: AsyncSIOTestClient | None = self.clients.get(eio_sid)
         if client is None:
             return  # TODO logging?
 
-        if pkt.packet_type in {packet.EVENT, packet.BINARY_EVENT}:
-            client.event_put(event=pkt.data[0], data=pkt.data[1])
+        if eio_pkt.packet_type == eio_packet.MESSAGE:
+            # TODO this is a band-aid, doesn't work with multi-packet messages
+            pkt = packet.Packet(encoded_packet=eio_pkt.data)
+            if pkt.packet_type in {packet.EVENT, packet.BINARY_EVENT}:
+                client.event_put(event=pkt.data[0], data=pkt.data[1])
+            else:
+                logging.warning(f"Unknown packet: {pkt.packet_type=} {pkt.data=}")
+                client.packets.setdefault(pkt.packet_type, []).append(pkt)
         else:
-            logging.warning(f"Unknown packet: {pkt.packet_type=} {pkt.data=}")
-            client.packets.setdefault(pkt.packet_type, []).append(pkt)
+            logging.warning(f"Unknown eio packet: {eio_pkt.data=}")
+            client.eio_packets.setdefault(eio_pkt.packet_type, []).append(eio_pkt)
 
     @contextmanager
     def patch(self) -> Iterator[Self]:
-        mock_send = patch.object(self.server, "_send_packet", self._send_packet)
+        mock_send = patch.object(self.server, "_send_eio_packet", self._send_eio_packet)
         mock_send.start()
         yield self
         mock_send.stop()
@@ -82,3 +90,5 @@ class AsyncSIOTestServer:
         await self.server._handle_eio_disconnect(eio_sid=eio_sid)
 
         # TODO check client.packets for the DISCONNECT-type packet
+
+        self.clients.pop(eio_sid)
