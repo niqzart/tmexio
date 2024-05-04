@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
 from inspect import Parameter, Signature, iscoroutinefunction, signature
 from logging import Logger
-from typing import Annotated, Any, Literal, get_args, get_origin
+from typing import Annotated, Any, Generic, Literal, TypeVar, get_args, get_origin
 
 import socketio  # type: ignore[import-untyped]
 from asgiref.sync import sync_to_async
@@ -11,7 +11,13 @@ from pydantic import BaseModel, create_model
 from socketio.packet import Packet  # type: ignore[import-untyped]
 
 from tmexio import markers, packagers
-from tmexio.event_handlers import AsyncEventHandler
+from tmexio.event_handlers import (
+    AsyncConnectHandler,
+    AsyncDisconnectHandler,
+    AsyncEventHandler,
+    BaseAsyncHandler,
+    BaseAsyncHandlerWithArguments,
+)
 from tmexio.exceptions import EventException
 from tmexio.server import AsyncServer, AsyncSocket
 from tmexio.specs import HandlerSpec
@@ -57,7 +63,10 @@ class Destinations:
         ]
 
 
-class HandlerBuilder:
+HandlerType = TypeVar("HandlerType", bound=BaseAsyncHandler)
+
+
+class HandlerBuilder(Generic[HandlerType]):
     type_to_marker: dict[type[Any], markers.Marker[Any]] = {
         AsyncServer: markers.AsyncServerMarker(),
         AsyncSocket: markers.AsyncSocketMarker(),
@@ -69,11 +78,11 @@ class HandlerBuilder:
         function: Callable[..., Any],
         possible_exceptions: list[EventException],
     ) -> None:
-        self.possible_exceptions = possible_exceptions
-
         self.function = function
         self.signature: Signature = signature(function)
         self.destinations = Destinations()
+
+        self.possible_exceptions = possible_exceptions
 
     def parse_parameter(self, parameter: Parameter) -> None:
         annotation = parameter.annotation
@@ -92,6 +101,47 @@ class HandlerBuilder:
         else:
             self.destinations.add_body_field(parameter.name, parameter.annotation)
 
+    def build_async_callable(self) -> Callable[..., Awaitable[Any]]:
+        if iscoroutinefunction(self.function):
+            return self.function
+        elif callable(self.function):
+            return sync_to_async(self.function)
+        raise TypeError("Handler is not callable")
+
+    def build_handler(self) -> HandlerType:
+        raise NotImplementedError
+
+    @classmethod
+    def build_spec_from_handler(
+        cls,
+        handler: HandlerType,
+        summary: str | None,
+        description: str | None,
+    ) -> HandlerSpec:
+        raise NotImplementedError
+
+
+HandlerWithExceptionsType = TypeVar(
+    "HandlerWithExceptionsType", bound=BaseAsyncHandlerWithArguments
+)
+
+
+class HandlerWithExceptionsBuilder(
+    HandlerBuilder[HandlerWithExceptionsType],
+    Generic[HandlerWithExceptionsType],
+):
+    @classmethod
+    def build_exceptions(
+        cls, handler: HandlerWithExceptionsType
+    ) -> Iterator[EventException]:
+        yield from list(handler.possible_exceptions)
+        if handler.body_model is None:
+            yield handler.zero_arguments_expected_error
+        else:
+            yield handler.one_argument_expected_error
+
+
+class EventHandlerBuilder(HandlerWithExceptionsBuilder[AsyncEventHandler]):
     def parse_return_annotation(self) -> packagers.BasePackager[Any]:
         annotation = self.signature.return_annotation
         args = get_args(annotation)
@@ -111,15 +161,8 @@ class HandlerBuilder:
             self.parse_parameter(parameter)
         ack_packager = self.parse_return_annotation()
 
-        if iscoroutinefunction(self.function):
-            async_callable = self.function
-        elif callable(self.function):
-            async_callable = sync_to_async(self.function)
-        else:
-            raise TypeError("Handler is not callable")
-
         return AsyncEventHandler(
-            async_callable=async_callable,
+            async_callable=self.build_async_callable(),
             marker_destinations=self.destinations.build_marker_destinations(),
             body_model=self.destinations.build_body_model(),
             body_destinations=self.destinations.build_body_destinations(),
@@ -134,19 +177,87 @@ class HandlerBuilder:
         summary: str | None,
         description: str | None,
     ) -> HandlerSpec:
-        exceptions = list(handler.possible_exceptions)
-        if handler.body_model is None:
-            exceptions.append(handler.zero_arguments_expected_error)
-        else:
-            exceptions.append(handler.one_argument_expected_error)
-            # TODO EventBodyException
-
         return HandlerSpec(
             summary=summary,
             description=description,
-            exceptions=exceptions,
+            exceptions=list(cls.build_exceptions(handler)),
             body_model=handler.body_model,
         )
+
+
+class ConnectHandlerBuilder(HandlerWithExceptionsBuilder[AsyncConnectHandler]):
+    def build_handler(self) -> AsyncConnectHandler:
+        for parameter in self.signature.parameters.values():
+            self.parse_parameter(parameter)
+
+        if self.signature.return_annotation is not None:
+            raise TypeError("Connection handlers can not return anything")
+
+        return AsyncConnectHandler(
+            async_callable=self.build_async_callable(),
+            marker_destinations=self.destinations.build_marker_destinations(),
+            body_model=self.destinations.build_body_model(),
+            body_destinations=self.destinations.build_body_destinations(),
+            possible_exceptions=set(self.possible_exceptions),
+        )
+
+    @classmethod
+    def build_spec_from_handler(
+        cls,
+        handler: AsyncConnectHandler,
+        summary: str | None,
+        description: str | None,
+    ) -> HandlerSpec:
+        return HandlerSpec(
+            summary=summary,
+            description=description,
+            exceptions=list(cls.build_exceptions(handler)),
+            body_model=handler.body_model,
+        )
+
+
+class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
+    def build_handler(self) -> AsyncDisconnectHandler:
+        if self.possible_exceptions:
+            raise TypeError("Disconnection handlers can not have possible exceptions")
+
+        for parameter in self.signature.parameters.values():
+            self.parse_parameter(parameter)
+
+        if self.destinations.build_body_model() is not None:
+            raise TypeError("Disconnection handlers can not have arguments")
+
+        if self.signature.return_annotation is not None:
+            raise TypeError("Disconnection handlers can not return anything")
+
+        return AsyncDisconnectHandler(
+            async_callable=self.build_async_callable(),
+            marker_destinations=self.destinations.build_marker_destinations(),
+        )
+
+    @classmethod
+    def build_spec_from_handler(
+        cls,
+        handler: AsyncDisconnectHandler,
+        summary: str | None,
+        description: str | None,
+    ) -> HandlerSpec:
+        return HandlerSpec(
+            summary=summary,
+            description=description,
+            exceptions=[],
+            body_model=None,
+        )
+
+
+EVENT_NAME_TO_HANDLER_BUILDER: dict[str, type[HandlerBuilder[Any]]] = {
+    "connect": ConnectHandlerBuilder,
+    "disconnect": DisconnectHandlerBuilder,
+}
+
+
+def pick_handler_class_by_event_name(event_name: str) -> type[HandlerBuilder[Any]]:
+    return EVENT_NAME_TO_HANDLER_BUILDER.get(event_name, EventHandlerBuilder)
 
 
 class EventRouter:
@@ -168,15 +279,17 @@ class EventRouter:
         description: str | None = None,
         exceptions: list[EventException] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        handler_builder_class = pick_handler_class_by_event_name(event_name)
+
         def on_inner(function: Callable[..., Any]) -> Callable[..., Any]:
-            handler = HandlerBuilder(
+            handler = handler_builder_class(
                 function=function,
                 possible_exceptions=exceptions or [],
             ).build_handler()
             self.add_handler(
                 event_name=event_name,
                 handler=handler,
-                spec=HandlerBuilder.build_spec_from_handler(
+                spec=handler_builder_class.build_spec_from_handler(
                     handler=handler,
                     summary=summary,
                     description=description,
@@ -185,6 +298,32 @@ class EventRouter:
             return function
 
         return on_inner
+
+    def on_connect(
+        self,
+        summary: str | None = None,
+        description: str | None = None,
+        exceptions: list[EventException] | None = None,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self.on(
+            event_name="connect",
+            summary=summary,
+            description=description,
+            exceptions=exceptions,
+        )
+
+    def on_disconnect(
+        self,
+        summary: str | None = None,
+        description: str | None = None,
+        exceptions: list[EventException] | None = None,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self.on(
+            event_name="disconnect",
+            summary=summary,
+            description=description,
+            exceptions=exceptions,
+        )
 
     def include_router(self, router: EventRouter) -> None:
         for event_name, (handler, spec) in router.event_handlers.items():
@@ -220,8 +359,24 @@ class TMEXIO(EventRouter):
         handler: AsyncEventHandler,
         spec: HandlerSpec,
     ) -> None:
-        async def add_handler_inner(sid: str, *args: DataType) -> DataOrTuple:
-            return await handler(ClientEvent(self.server, sid, *args))
+        super().add_handler(event_name=event_name, handler=handler, spec=spec)
+
+        if event_name == "connect":
+
+            async def add_handler_inner(
+                sid: str, _environ: Any, auth: DataType = None
+            ) -> DataOrTuple:
+                return await handler(ClientEvent(self.server, sid, auth))
+
+        elif event_name == "disconnect":
+
+            async def add_handler_inner(sid: str) -> DataOrTuple:  # type: ignore[misc]
+                return await handler(ClientEvent(self.server, sid))
+
+        else:
+
+            async def add_handler_inner(sid: str, *args: DataType) -> DataOrTuple:  # type: ignore[misc]
+                return await handler(ClientEvent(self.server, sid, *args))
 
         self.backend.on(
             event=event_name,

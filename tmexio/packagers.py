@@ -33,8 +33,8 @@ class NoContentPackager(CodedPackager[None]):
     def __init__(self) -> None:
         super().__init__(code=204)
 
-    def pack_body(self, data: None) -> DataType:  # noqa: WPS324  # bug in WPS
-        return None  # noqa: WPS324  # bug in WPS
+    def pack_body(self, data: None) -> DataType:
+        return None
 
 
 class PydanticPackager(CodedPackager[Any]):
