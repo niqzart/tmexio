@@ -10,7 +10,7 @@ from socketio.exceptions import ConnectionRefusedError  # type: ignore[import-un
 
 from tmexio.exceptions import EventException
 from tmexio.markers import Marker
-from tmexio.packagers import BasePackager, ErrorPackager
+from tmexio.packagers import CodedPackager, ErrorPackager
 from tmexio.structures import ClientEvent
 from tmexio.types import DataOrTuple, DataType
 
@@ -92,7 +92,7 @@ class AsyncEventHandler(BaseAsyncHandlerWithArguments):
         body_model: type[BaseModel] | None,
         body_destinations: list[tuple[str, list[str]]],
         possible_exceptions: set[EventException],
-        ack_packager: BasePackager[Any],
+        ack_packager: CodedPackager[Any],
     ) -> None:
         super().__init__(
             async_callable=async_callable,

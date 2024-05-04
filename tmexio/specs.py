@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -9,5 +10,7 @@ from tmexio.exceptions import EventException
 class HandlerSpec:
     summary: str | None
     description: str | None
-    body_model: type[BaseModel] | None
+    event_body_model: type[BaseModel] | None
+    ack_code: int | None
+    ack_body_schema: dict[str, Any] | None
     exceptions: list[EventException]

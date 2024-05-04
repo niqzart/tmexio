@@ -142,7 +142,7 @@ class HandlerWithExceptionsBuilder(
 
 
 class EventHandlerBuilder(HandlerWithExceptionsBuilder[AsyncEventHandler]):
-    def parse_return_annotation(self) -> packagers.BasePackager[Any]:
+    def parse_return_annotation(self) -> packagers.CodedPackager[Any]:
         annotation = self.signature.return_annotation
         args = get_args(annotation)
 
@@ -151,7 +151,7 @@ class EventHandlerBuilder(HandlerWithExceptionsBuilder[AsyncEventHandler]):
         elif (  # noqa: WPS337
             get_origin(annotation) is Annotated
             and len(args) == 2
-            and isinstance(args[1], packagers.BasePackager)
+            and isinstance(args[1], packagers.CodedPackager)
         ):
             return args[1]
         return packagers.PydanticPackager(annotation)
@@ -181,7 +181,9 @@ class EventHandlerBuilder(HandlerWithExceptionsBuilder[AsyncEventHandler]):
             summary=summary,
             description=description,
             exceptions=list(cls.build_exceptions(handler)),
-            body_model=handler.body_model,
+            ack_code=handler.ack_packager.code,
+            ack_body_schema=handler.ack_packager.body_json_schema(),
+            event_body_model=handler.body_model,
         )
 
 
@@ -212,7 +214,9 @@ class ConnectHandlerBuilder(HandlerWithExceptionsBuilder[AsyncConnectHandler]):
             summary=summary,
             description=description,
             exceptions=list(cls.build_exceptions(handler)),
-            body_model=handler.body_model,
+            ack_code=None,
+            ack_body_schema=None,
+            event_body_model=handler.body_model,
         )
 
 
@@ -246,7 +250,9 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
             summary=summary,
             description=description,
             exceptions=[],
-            body_model=None,
+            ack_code=None,
+            ack_body_schema=None,
+            event_body_model=None,
         )
 
 

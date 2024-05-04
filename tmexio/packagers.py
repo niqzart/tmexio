@@ -28,6 +28,9 @@ class CodedPackager(Generic[PackedType], BasePackager[PackedType]):
     def pack_data(self, data: PackedType) -> DataOrTuple:
         return self.code, self.pack_body(data)
 
+    def body_json_schema(self) -> dict[str, Any]:
+        raise NotImplementedError
+
 
 class NoContentPackager(CodedPackager[None]):
     def __init__(self) -> None:
@@ -35,6 +38,9 @@ class NoContentPackager(CodedPackager[None]):
 
     def pack_body(self, data: None) -> DataType:
         return None
+
+    def body_json_schema(self) -> dict[str, Any]:
+        return {"type": "null"}
 
 
 class PydanticPackager(CodedPackager[Any]):
@@ -48,3 +54,6 @@ class PydanticPackager(CodedPackager[Any]):
             DataType,
             self.adapter.dump_python(validated_data, mode="json", by_alias=True),
         )
+
+    def body_json_schema(self) -> dict[str, Any]:
+        return self.adapter.json_schema()
