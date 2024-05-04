@@ -7,7 +7,6 @@ from tests.example.common import ROOM_NAME
 from tests.example.main import tmex
 from tests.example.models_db import HelloModel, HelloSchema
 from tests.utils import AsyncSIOTestClient, assert_ack, assert_nodata_ack
-from tmexio.exceptions import EventException
 
 pytestmark = pytest.mark.anyio
 
@@ -23,6 +22,18 @@ async def test_listing(client: AsyncSIOTestClient, some_hello: HelloModel) -> No
 async def test_listing_empty_list(client: AsyncSIOTestClient) -> None:
     assert_ack(await client.emit("list-hellos"), expected_body=[])
     assert tmex.backend.rooms(client.sid) == [client.sid, ROOM_NAME]
+
+
+async def test_listing_expected_zero_arguments(
+    client: AsyncSIOTestClient,
+    listener_client: AsyncSIOTestClient,
+) -> None:
+    assert_ack(
+        await client.emit("list-hellos", "lol"),
+        expected_body="Event expects zero arguments",
+        expected_code=422,
+    )
+    assert listener_client.event_count() == 0
 
 
 async def test_closing(listener_client: AsyncSIOTestClient) -> None:
@@ -46,6 +57,39 @@ async def test_creating(
     assert_contains(listener_client.event_pop("create-hello"), ack)
 
 
+@pytest.mark.parametrize("argument_count", [0, 2], ids=["nothing", "too_many"])
+async def test_creating_expected_one_argument(
+    client: AsyncSIOTestClient,
+    listener_client: AsyncSIOTestClient,
+    argument_count: int,
+) -> None:
+    arguments = ["lol" for _ in range(argument_count)]
+    assert_ack(
+        await client.emit("create-hello", *arguments),
+        expected_body="Event expects one argument",
+        expected_code=422,
+    )
+    assert listener_client.event_count() == 0
+
+
+async def test_creating_wrong_arguments(
+    client: AsyncSIOTestClient,
+    listener_client: AsyncSIOTestClient,
+) -> None:
+    assert_ack(
+        await client.emit("create-hello", "lol"),
+        expected_body=[
+            {
+                "type": "model_type",
+                "loc": [],
+                "msg": "Input should be a valid dictionary or instance of Model",
+            }
+        ],
+        expected_code=422,
+    )
+    assert listener_client.event_count() == 0
+
+
 async def test_retrieving(
     client: AsyncSIOTestClient,
     listener_client: AsyncSIOTestClient,
@@ -62,12 +106,10 @@ async def test_retrieving_not_found(
     client: AsyncSIOTestClient,
     listener_client: AsyncSIOTestClient,
 ) -> None:
-    with pytest.raises(EventException) as exc_info:
-        await client.emit("retrieve-hello", {"hello_id": "not-found"})
-
-    assert_contains(
-        {"code": exc_info.value.code, "body": exc_info.value.ack_body},
-        {"code": 404, "body": "Hello not found"},
+    assert_ack(
+        await client.emit("retrieve-hello", {"hello_id": "not-found"}),
+        expected_body="Hello not found",
+        expected_code=404,
     )
     assert listener_client.event_count() == 0
 
@@ -98,15 +140,13 @@ async def test_updating_not_found(
     listener_client: AsyncSIOTestClient,
     some_hello_data: HelloSchema,
 ) -> None:
-    with pytest.raises(EventException) as exc_info:
+    assert_ack(
         await client.emit(
             "update-hello",
             {"hello_id": "not-found", "hello": some_hello_data},
-        )
-
-    assert_contains(
-        {"code": exc_info.value.code, "body": exc_info.value.ack_body},
-        {"code": 404, "body": "Hello not found"},
+        ),
+        expected_body="Hello not found",
+        expected_code=404,
     )
     assert listener_client.event_count() == 0
 

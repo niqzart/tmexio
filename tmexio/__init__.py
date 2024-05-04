@@ -1,3 +1,4 @@
+from tmexio.exceptions import EventException
 from tmexio.main import TMEXIO, EventRouter
 from tmexio.markers import Sid
 from tmexio.packagers import PydanticPackager
@@ -10,4 +11,5 @@ __all__ = [
     "AsyncServer",
     "AsyncSocket",
     "PydanticPackager",
+    "EventException",
 ]

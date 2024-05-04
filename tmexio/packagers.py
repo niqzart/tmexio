@@ -14,7 +14,7 @@ class BasePackager(Generic[PackedType]):
 
 
 class ErrorPackager(BasePackager[EventException]):
-    def pack(self, data: EventException) -> DataOrTuple:
+    def pack_data(self, data: EventException) -> DataOrTuple:
         return data.code, data.ack_body
 
 
@@ -43,7 +43,6 @@ class PydanticPackager(CodedPackager[Any]):
         self.adapter = TypeAdapter(annotation)
 
     def pack_body(self, data: Any) -> DataType:
-        # TODO error handling for clarity
         validated_data = self.adapter.validate_python(data, from_attributes=True)
         return cast(
             DataType,

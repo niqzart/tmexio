@@ -1,4 +1,4 @@
-from tmexio.exceptions import EventException
+from tmexio import EventException
 
 ROOM_NAME = "helloers"
 

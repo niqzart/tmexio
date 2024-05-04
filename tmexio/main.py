@@ -64,7 +64,13 @@ class HandlerBuilder:
         ClientEvent: markers.ClientEventMarker(),
     }
 
-    def __init__(self, function: Callable[..., Any]) -> None:
+    def __init__(
+        self,
+        function: Callable[..., Any],
+        possible_exceptions: list[EventException],
+    ) -> None:
+        self.possible_exceptions = possible_exceptions
+
         self.function = function
         self.signature: Signature = signature(function)
         self.destinations = Destinations()
@@ -117,7 +123,29 @@ class HandlerBuilder:
             marker_destinations=self.destinations.build_marker_destinations(),
             body_model=self.destinations.build_body_model(),
             body_destinations=self.destinations.build_body_destinations(),
+            possible_exceptions=set(self.possible_exceptions),
             ack_packager=ack_packager,
+        )
+
+    @classmethod
+    def build_spec_from_handler(
+        cls,
+        handler: AsyncEventHandler,
+        summary: str | None,
+        description: str | None,
+    ) -> HandlerSpec:
+        exceptions = list(handler.possible_exceptions)
+        if handler.body_model is None:
+            exceptions.append(handler.zero_arguments_expected_error)
+        else:
+            exceptions.append(handler.one_argument_expected_error)
+            # TODO EventBodyException
+
+        return HandlerSpec(
+            summary=summary,
+            description=description,
+            exceptions=exceptions,
+            body_model=handler.body_model,
         )
 
 
@@ -141,15 +169,17 @@ class EventRouter:
         exceptions: list[EventException] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def on_inner(function: Callable[..., Any]) -> Callable[..., Any]:
-            handler = HandlerBuilder(function=function).build_handler()
+            handler = HandlerBuilder(
+                function=function,
+                possible_exceptions=exceptions or [],
+            ).build_handler()
             self.add_handler(
                 event_name=event_name,
                 handler=handler,
-                spec=HandlerSpec(
+                spec=HandlerBuilder.build_spec_from_handler(
+                    handler=handler,
                     summary=summary,
                     description=description,
-                    exceptions=exceptions or [],
-                    body_model=handler.body_model,
                 ),
             )
             return function
