@@ -6,6 +6,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from tmexio.markers import Marker
+from tmexio.packagers import BasePackager
 from tmexio.structures import ClientEvent
 from tmexio.types import DataOrTuple
 
@@ -17,11 +18,13 @@ class AsyncEventHandler:
         marker_destinations: list[tuple[Marker[Any], list[str]]],
         body_model: type[BaseModel],
         body_destinations: list[tuple[str, list[str]]],
+        ack_packager: BasePackager[Any],
     ) -> None:
         self.async_callable = async_callable
         self.marker_destinations = marker_destinations
         self.body_model = body_model
         self.body_destinations = body_destinations
+        self.ack_packager = ack_packager
 
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
         if len(event.args) != 1:  # TODO convert to 422
@@ -40,5 +43,6 @@ class AsyncEventHandler:
             for name in parameter_names:
                 kwargs[name] = value
 
-        return await self.async_callable(**kwargs)  # type: ignore[no-any-return]
-        # TODO pack result from Any to DataOrTuple
+        result = await self.async_callable(**kwargs)
+
+        return self.ack_packager.pack_data(result)

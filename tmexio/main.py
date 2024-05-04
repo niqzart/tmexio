@@ -10,7 +10,7 @@ from asgiref.sync import sync_to_async
 from pydantic import BaseModel, create_model
 from socketio.packet import Packet  # type: ignore[import-untyped]
 
-from tmexio import markers
+from tmexio import markers, packagers
 from tmexio.event_handlers import AsyncEventHandler
 from tmexio.exceptions import EventException
 from tmexio.server import AsyncServer, AsyncSocket
@@ -73,8 +73,8 @@ class HandlerBuilder:
             marker = self.type_to_marker.get(annotation)
             if marker is not None:
                 annotation = Annotated[annotation, marker]
-
         args = get_args(annotation)
+
         if (  # noqa: WPS337
             get_origin(annotation) is Annotated
             and len(args) == 2
@@ -84,16 +84,24 @@ class HandlerBuilder:
         else:
             self.destinations.add_body_field(parameter.name, parameter.annotation)
 
-    def parse_return_annotation(self) -> None:
-        pass  # TODO self.signature.return_annotation
+    def parse_return_annotation(self) -> packagers.BasePackager[Any]:
+        annotation = self.signature.return_annotation
+        args = get_args(annotation)
 
-    def parse_signature(self) -> None:
-        for parameter in self.signature.parameters.values():
-            self.parse_parameter(parameter)
-        self.parse_return_annotation()
+        if annotation is None:
+            return packagers.NoContentPackager()
+        elif (  # noqa: WPS337
+            get_origin(annotation) is Annotated
+            and len(args) == 2
+            and isinstance(args[1], packagers.BasePackager)
+        ):
+            return args[1]
+        return packagers.PydanticPackager(annotation)
 
     def build_handler(self) -> AsyncEventHandler:
-        self.parse_signature()
+        for parameter in self.signature.parameters.values():
+            self.parse_parameter(parameter)
+        ack_packager = self.parse_return_annotation()
 
         if iscoroutinefunction(self.function):
             async_callable = self.function
@@ -107,6 +115,7 @@ class HandlerBuilder:
             marker_destinations=self.destinations.build_marker_destinations(),
             body_model=self.destinations.build_body_model(),
             body_destinations=self.destinations.build_body_destinations(),
+            ack_packager=ack_packager,
         )
 
 

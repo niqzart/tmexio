@@ -1,4 +1,4 @@
-from typing import Annotated, Any
+from typing import Annotated
 
 from pydantic import Field
 
@@ -14,13 +14,13 @@ async def update_hello(
     hello_id: str,
     hello_data: Annotated[HelloSchema, Field(alias="hello")],
     socket: AsyncSocket,
-) -> Any:
+) -> HelloModel:
     hello = HelloModel.find_first_by_id(hello_id)
     if hello is None:
         raise not_found_exception
     hello.update(hello_data)
     await socket.emit("update-hello", hello.model_dump(mode="json"), target=ROOM_NAME)
-    return hello.model_dump(mode="json")
+    return hello
 
 
 @router.on("delete-hello")
@@ -32,8 +32,8 @@ async def delete_hello(hello_id: str, socket: AsyncSocket) -> None:
 
 
 @router.on("retrieve-hello")
-async def retrieve_hello(hello_id: str) -> Any:
+async def retrieve_hello(hello_id: str) -> HelloModel:
     hello = HelloModel.find_first_by_id(hello_id)
     if hello is None:
         raise not_found_exception
-    return hello.model_dump(mode="json")
+    return hello

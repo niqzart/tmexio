@@ -1,11 +1,14 @@
 import logging
 from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, Self
+from typing import Any, Self, cast
 from unittest.mock import patch
 
 from engineio import packet as eio_packet  # type: ignore[import-untyped]
+from pydantic_marshals.contains import TypeChecker, assert_contains
 from socketio import AsyncServer, packet  # type: ignore[import-untyped]
+
+from tmexio.types import DataType
 
 
 class AsyncSIOTestClient:
@@ -92,3 +95,24 @@ class AsyncSIOTestServer:
         # TODO check client.packets for the DISCONNECT-type packet
 
         self.clients.pop(eio_sid)
+
+
+def assert_ack(
+    ack: Any,
+    *,
+    expected_code: int = 200,
+    expected_body: TypeChecker,
+) -> DataType:
+    assert isinstance(ack, tuple)
+    assert len(ack) == 2
+
+    code, body = ack
+    assert_contains(
+        {"code": code, "body": body},
+        {"code": expected_code, "body": expected_body},
+    )
+    return cast(DataType, body)
+
+
+def assert_nodata_ack(ack: Any, expected_code: int = 204) -> None:
+    assert_ack(ack, expected_code=expected_code, expected_body=None)
