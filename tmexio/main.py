@@ -62,22 +62,10 @@ class HandlerBuilder:
         ClientEvent: markers.ClientEventMarker(),
     }
 
-    def __init__(
-        self,
-        function: Callable[..., Any],
-        summary: str | None,
-        description: str | None,
-        exceptions: list[EventException],
-    ) -> None:
+    def __init__(self, function: Callable[..., Any]) -> None:
         self.function = function
         self.signature: Signature = signature(function)
         self.destinations = Destinations()
-
-        self.spec = HandlerSpec(
-            summary=summary,
-            description=description,
-            exceptions=exceptions,
-        )
 
     def parse_parameter(self, parameter: Parameter) -> None:
         annotation = parameter.annotation
@@ -121,9 +109,6 @@ class HandlerBuilder:
             body_destinations=self.destinations.build_body_destinations(),
         )
 
-    def build_spec(self) -> HandlerSpec:
-        return self.spec
-
 
 class EventRouter:
     def __init__(self) -> None:
@@ -145,16 +130,16 @@ class EventRouter:
         exceptions: list[EventException] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         def on_inner(function: Callable[..., Any]) -> Callable[..., Any]:
-            handler_builder = HandlerBuilder(
-                function=function,
-                summary=summary,
-                description=description,
-                exceptions=exceptions or [],
-            )
+            handler = HandlerBuilder(function=function).build_handler()
             self.add_handler(
                 event_name=event_name,
-                handler=handler_builder.build_handler(),
-                spec=handler_builder.build_spec(),
+                handler=handler,
+                spec=HandlerSpec(
+                    summary=summary,
+                    description=description,
+                    exceptions=exceptions or [],
+                    body_model=handler.body_model,
+                ),
             )
             return function
 
