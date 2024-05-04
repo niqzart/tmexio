@@ -14,19 +14,19 @@ pytestmark = pytest.mark.anyio
 
 async def test_listing(client: AsyncSIOTestClient, some_hello: HelloModel) -> None:
     assert_ack(
-        await client.emit("list-hellos", {}),
+        await client.emit("list-hellos"),
         expected_body=[some_hello.model_dump(mode="json")],
     )
     assert tmex.backend.rooms(client.sid) == [client.sid, ROOM_NAME]
 
 
 async def test_listing_empty_list(client: AsyncSIOTestClient) -> None:
-    assert_ack(await client.emit("list-hellos", {}), expected_body=[])
+    assert_ack(await client.emit("list-hellos"), expected_body=[])
     assert tmex.backend.rooms(client.sid) == [client.sid, ROOM_NAME]
 
 
 async def test_closing(listener_client: AsyncSIOTestClient) -> None:
-    assert_nodata_ack(await listener_client.emit("close-hellos", {}))
+    assert_nodata_ack(await listener_client.emit("close-hellos"))
     assert tmex.backend.rooms(listener_client.sid) == [listener_client.sid]
 
 
@@ -90,7 +90,7 @@ async def test_updating(
 
     assert_contains(listener_client.event_pop("update-hello"), ack)
     real_hello = HelloModel.find_first_by_id(some_hello.id)
-    assert_contains(real_hello, ack)
+    assert_contains(real_hello, new_hello.model_dump())
 
 
 async def test_updating_not_found(
