@@ -70,6 +70,9 @@ class AsyncServer:
             ),
         )
 
+    def get_environ(self, sid: str, namespace: str | None = None) -> dict[str, Any]:
+        return cast(dict[str, Any], self.backend.get_environ(sid, namespace))
+
     async def get_session(
         self,
         sid: str,
@@ -192,6 +195,9 @@ class AsyncSocket:
             timeout=timeout,
             ignore_queue=ignore_queue,
         )
+
+    def get_environ(self, namespace: str | None = None) -> dict[str, Any]:
+        return self.server.get_environ(self.sid, namespace)
 
     async def get_session(self, namespace: str | None = None) -> dict[Any, Any]:
         return await self.server.get_session(sid=self.sid, namespace=namespace)
