@@ -11,6 +11,11 @@ class Marker(Generic[T]):
         raise NotImplementedError
 
 
+class EventNameMarker(Marker[str]):
+    def extract(self, event: ClientEvent) -> str:
+        return event.event_name
+
+
 class SidMarker(Marker[str]):
     def extract(self, event: ClientEvent) -> str:
         return event.sid
@@ -32,3 +37,4 @@ class ClientEventMarker(Marker[ClientEvent]):
 
 
 Sid = Annotated[str, SidMarker()]
+EventName = Annotated[str, EventNameMarker()]

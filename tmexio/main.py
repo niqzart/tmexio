@@ -325,6 +325,19 @@ class EventRouter:
             exceptions=exceptions,
         )
 
+    def on_other(
+        self,
+        summary: str | None = None,
+        description: str | None = None,
+        exceptions: list[EventException] | None = None,
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        return self.on(
+            event_name="*",
+            summary=summary,
+            description=description,
+            exceptions=exceptions,
+        )
+
     def include_router(self, router: EventRouter) -> None:
         for event_name, (handler, spec) in router.event_handlers.items():
             self.add_handler(event_name, handler, spec)
@@ -366,17 +379,24 @@ class TMEXIO(EventRouter):
             async def add_handler_inner(
                 sid: str, _environ: Any, auth: DataType = None
             ) -> DataOrTuple:
-                return await handler(ClientEvent(self.server, sid, auth))
+                return await handler(ClientEvent(self.server, "connect", sid, auth))
 
         elif event_name == "disconnect":
 
             async def add_handler_inner(sid: str) -> DataOrTuple:  # type: ignore[misc]
-                return await handler(ClientEvent(self.server, sid))
+                return await handler(ClientEvent(self.server, "disconnect", sid))
+
+        elif event_name == "*":
+
+            async def add_handler_inner(  # type: ignore[misc]
+                event: str, sid: str, *args: DataType
+            ) -> DataOrTuple:
+                return await handler(ClientEvent(self.server, event, sid, *args))
 
         else:
 
             async def add_handler_inner(sid: str, *args: DataType) -> DataOrTuple:  # type: ignore[misc]
-                return await handler(ClientEvent(self.server, sid, *args))
+                return await handler(ClientEvent(self.server, event_name, sid, *args))
 
         self.backend.on(
             event=event_name,

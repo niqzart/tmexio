@@ -11,6 +11,14 @@ from tests.utils import AsyncSIOTestClient, assert_ack, assert_nodata_ack
 pytestmark = pytest.mark.anyio
 
 
+async def test_unknown(client: AsyncSIOTestClient) -> None:
+    assert_ack(
+        await client.emit("unknown"),
+        expected_body="Unknown event: 'unknown'",
+        expected_code=404,
+    )
+
+
 async def test_listing(client: AsyncSIOTestClient, some_hello: HelloModel) -> None:
     assert_ack(
         await client.emit("list-hellos"),
