@@ -1,8 +1,9 @@
 from typing import Annotated
 
 from tests.example.collection_sio import router as collection_router
+from tests.example.common import SIO_TOKEN, authorization_exception
 from tests.example.entries_sio import router as entries_router
-from tmexio import TMEXIO, EventName, EventRouter, PydanticPackager
+from tmexio import TMEXIO, EventName, EventRouter, PydanticPackager, Sid
 
 main_router = EventRouter()
 main_router.include_router(collection_router)
@@ -18,5 +19,19 @@ async def handle_other_events(
 
 tmex = TMEXIO()
 tmex.include_router(main_router)
+connections: set[str] = set()
+
+
+@tmex.on_connect(exceptions=[authorization_exception])
+async def connect(sid: Sid, token: str) -> None:
+    if token != SIO_TOKEN:
+        raise authorization_exception
+    connections.add(sid)
+
+
+@tmex.on_disconnect()
+async def disconnect(sid: Sid) -> None:
+    connections.remove(sid)
+
 
 app = tmex.build_asgi_app()

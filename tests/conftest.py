@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from tests.example.common import ROOM_NAME
+from tests.example.common import ROOM_NAME, SIO_TOKEN
 from tests.example.main import tmex
 from tests.example.models_db import HelloModel, HelloSchema
 from tests.utils import AsyncSIOTestClient, AsyncSIOTestServer
@@ -25,7 +25,7 @@ async def server() -> AsyncIterator[AsyncSIOTestServer]:
 
 @pytest.fixture()
 async def client(server: AsyncSIOTestServer) -> AsyncIterator[AsyncSIOTestClient]:
-    async with server.connect_client() as client:
+    async with server.connect_client({"token": SIO_TOKEN}) as client:
         yield client
 
 
@@ -33,7 +33,7 @@ async def client(server: AsyncSIOTestServer) -> AsyncIterator[AsyncSIOTestClient
 async def listener_client(
     server: AsyncSIOTestServer,
 ) -> AsyncIterator[AsyncSIOTestClient]:
-    async with server.connect_client() as client:
+    async with server.connect_client({"token": SIO_TOKEN}) as client:
         await tmex.backend.enter_room(client.sid, ROOM_NAME)
         yield client
 

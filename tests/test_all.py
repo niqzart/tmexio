@@ -3,12 +3,32 @@ from datetime import datetime
 import pytest
 from pydantic_marshals.contains import assert_contains
 
-from tests.example.common import ROOM_NAME
-from tests.example.main import tmex
+from tests.example.common import ROOM_NAME, SIO_TOKEN
+from tests.example.main import connections, tmex
 from tests.example.models_db import HelloModel, HelloSchema
-from tests.utils import AsyncSIOTestClient, assert_ack, assert_nodata_ack
+from tests.utils import (
+    AsyncSIOTestClient,
+    AsyncSIOTestServer,
+    assert_ack,
+    assert_nodata_ack,
+)
 
 pytestmark = pytest.mark.anyio
+
+
+async def test_connection(client: AsyncSIOTestClient) -> None:
+    assert client.sid in connections
+
+
+async def test_connection_invalid_token(server: AsyncSIOTestServer) -> None:
+    async with server.connect_client() as client:
+        assert client.sid not in connections
+
+
+async def test_disconnection(server: AsyncSIOTestServer) -> None:
+    async with server.connect_client({"token": SIO_TOKEN}) as client:
+        assert client.sid in connections
+    assert client.sid not in connections
 
 
 async def test_unknown(client: AsyncSIOTestClient) -> None:

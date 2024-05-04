@@ -1,5 +1,6 @@
 from tmexio import EventException
 
+SIO_TOKEN = "wow"  # noqa: S105
 ROOM_NAME = "helloers"
 
 authorization_exception = EventException(401, "Authorization missing or invalid")
