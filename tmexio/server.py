@@ -13,7 +13,8 @@ class AsyncServer:
     async def emit(
         self,
         event: str,
-        data: DataOrTuple,
+        # TODO proper support for pydantic `data`
+        data: DataOrTuple | dict[str, Any],
         target: str | None = None,
         skip_sid: str | None = None,
         namespace: str | None = None,
@@ -137,7 +138,8 @@ class AsyncSocket:
     async def emit(
         self,
         event: str,
-        data: DataType | tuple[DataType, ...],
+        # TODO proper support for pydantic `data`
+        data: DataType | tuple[DataType, ...] | dict[str, Any],
         target: str | None = None,
         skip_sid: str | None = None,
         exclude_self: bool = False,
