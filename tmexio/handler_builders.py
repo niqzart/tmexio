@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterator
+from dataclasses import dataclass, field
 from inspect import Parameter, Signature, iscoroutinefunction, signature
 from typing import Annotated, Any, Generic, TypeVar, get_args, get_origin
 
@@ -20,31 +22,14 @@ from tmexio.specs import HandlerSpec
 from tmexio.structures import ClientEvent
 
 
-class Destinations:
-    def __init__(self) -> None:
-        self.markers: dict[markers.Marker[Any], set[str]] = {}
-        self.body_annotations: dict[str, Any] = {}
-        self.body_destinations: dict[str, set[str]] = {}
-
-    def add_marker_destination(
-        self, marker: markers.Marker[Any], destination: str
-    ) -> None:
-        self.markers.setdefault(marker, set()).add(destination)
-
-    def add_body_field(self, field_name: str, parameter_annotation: Any) -> None:
-        if get_origin(parameter_annotation) is not Annotated:
-            parameter_annotation = parameter_annotation, ...
-        self.body_annotations[field_name] = parameter_annotation
-        self.body_destinations.setdefault(field_name, set()).add(field_name)
+@dataclass()
+class BuilderContext:
+    marker_definitions: set[markers.Marker[Any]] = field(default_factory=set)
+    body_annotations: dict[str, Any] = field(default_factory=dict)
+    possible_exceptions: set[EventException] = field(default_factory=set)
 
     def build_marker_definitions(self) -> list[markers.Marker[Any]]:
-        return list(self.markers.keys())
-
-    def build_marker_destinations(self) -> list[tuple[markers.Marker[Any], list[str]]]:
-        return [
-            (marker, list(destinations))
-            for marker, destinations in self.markers.items()
-        ]
+        return list(self.marker_definitions)
 
     def build_body_model(self) -> type[BaseModel] | None:
         if not self.body_annotations:
@@ -54,10 +39,20 @@ class Destinations:
             **self.body_annotations,
         )
 
-    def build_body_destinations(self) -> list[tuple[str, list[str]]]:
+
+Key = TypeVar("Key")
+
+
+class Destinations(Generic[Key]):
+    def __init__(self) -> None:
+        self.collection: dict[Key, set[str]] = defaultdict(set)
+
+    def add(self, key: Key, param_name: str) -> None:
+        self.collection[key].add(param_name)
+
+    def extract(self) -> list[tuple[Key, list[str]]]:
         return [
-            (field, list(destinations))
-            for field, destinations in self.body_destinations.items()
+            (key, list(param_names)) for key, param_names in self.collection.items()
         ]
 
 
@@ -78,9 +73,24 @@ class HandlerBuilder(Generic[HandlerType]):
     ) -> None:
         self.function = function
         self.signature: Signature = signature(function)
-        self.destinations = Destinations()
 
-        self.possible_exceptions = possible_exceptions
+        self.marker_destinations: Destinations[markers.Marker[Any]] = Destinations()
+        self.body_destinations: Destinations[str] = Destinations()
+
+        self.context = BuilderContext(possible_exceptions=set(possible_exceptions))
+
+    def add_marker_destination(
+        self, marker: markers.Marker[Any], field_name: str
+    ) -> None:
+        self.context.marker_definitions.add(marker)
+        self.marker_destinations.add(marker, field_name)
+
+    def add_body_field(self, field_name: str, parameter_annotation: Any) -> None:
+        if get_origin(parameter_annotation) is not Annotated:
+            parameter_annotation = parameter_annotation, ...
+        # TODO this should check for conflicts (on context level)
+        self.context.body_annotations[field_name] = parameter_annotation
+        self.body_destinations.add(field_name, field_name)
 
     def parse_parameter(self, parameter: Parameter) -> None:
         annotation = parameter.annotation
@@ -95,9 +105,13 @@ class HandlerBuilder(Generic[HandlerType]):
             and len(args) == 2
             and isinstance(args[1], markers.Marker)
         ):
-            self.destinations.add_marker_destination(args[1], parameter.name)
+            self.add_marker_destination(args[1], parameter.name)
         else:
-            self.destinations.add_body_field(parameter.name, parameter.annotation)
+            self.add_body_field(parameter.name, parameter.annotation)
+
+    def parse_parameters(self) -> None:
+        for parameter in self.signature.parameters.values():
+            self.parse_parameter(parameter)
 
     def build_async_callable(self) -> Callable[..., Awaitable[Any]]:
         if iscoroutinefunction(self.function):
@@ -143,17 +157,16 @@ class EventHandlerBuilder(HandlerBuilder[AsyncEventHandler]):
         return packagers.PydanticPackager(annotation)
 
     def build_handler(self) -> AsyncEventHandler:
-        for parameter in self.signature.parameters.values():
-            self.parse_parameter(parameter)
+        self.parse_parameters()
         ack_packager = self.parse_return_annotation()
 
         return AsyncEventHandler(
             async_callable=self.build_async_callable(),
-            marker_definitions=self.destinations.build_marker_definitions(),
-            marker_destinations=self.destinations.build_marker_destinations(),
-            body_model=self.destinations.build_body_model(),
-            body_destinations=self.destinations.build_body_destinations(),
-            possible_exceptions=set(self.possible_exceptions),
+            marker_definitions=self.context.build_marker_definitions(),
+            marker_destinations=self.marker_destinations.extract(),
+            body_model=self.context.build_body_model(),
+            body_destinations=self.body_destinations.extract(),
+            possible_exceptions=self.context.possible_exceptions,
             dependency_definitions=[],  # TODO
             dependency_destinations=[],  # TODO
             ack_packager=ack_packager,
@@ -178,21 +191,20 @@ class EventHandlerBuilder(HandlerBuilder[AsyncEventHandler]):
 
 class ConnectHandlerBuilder(HandlerBuilder[AsyncConnectHandler]):
     def build_handler(self) -> AsyncConnectHandler:
-        for parameter in self.signature.parameters.values():
-            self.parse_parameter(parameter)
+        self.parse_parameters()
 
         if self.signature.return_annotation is not None:
             raise TypeError("Connection handlers can not return anything")
 
         return AsyncConnectHandler(
             async_callable=self.build_async_callable(),
-            marker_definitions=self.destinations.build_marker_definitions(),
-            marker_destinations=self.destinations.build_marker_destinations(),
-            body_model=self.destinations.build_body_model(),
-            body_destinations=self.destinations.build_body_destinations(),
+            marker_definitions=self.context.build_marker_definitions(),
+            marker_destinations=self.marker_destinations.extract(),
+            body_model=self.context.build_body_model(),
+            body_destinations=self.body_destinations.extract(),
             dependency_definitions=[],  # TODO
             dependency_destinations=[],  # TODO
-            possible_exceptions=set(self.possible_exceptions),
+            possible_exceptions=self.context.possible_exceptions,
         )
 
     @classmethod
@@ -214,13 +226,12 @@ class ConnectHandlerBuilder(HandlerBuilder[AsyncConnectHandler]):
 
 class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
     def build_handler(self) -> AsyncDisconnectHandler:
-        if self.possible_exceptions:
+        if self.context.possible_exceptions:
             raise TypeError("Disconnection handlers can not have possible exceptions")
 
-        for parameter in self.signature.parameters.values():
-            self.parse_parameter(parameter)
+        self.parse_parameters()
 
-        if self.destinations.build_body_model() is not None:
+        if self.context.build_body_model() is not None:
             raise TypeError("Disconnection handlers can not have arguments")
 
         if self.signature.return_annotation is not None:
@@ -228,8 +239,8 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
 
         return AsyncDisconnectHandler(
             async_callable=self.build_async_callable(),
-            marker_definitions=self.destinations.build_marker_definitions(),
-            marker_destinations=self.destinations.build_marker_destinations(),
+            marker_definitions=self.context.build_marker_definitions(),
+            marker_destinations=self.marker_destinations.extract(),
             dependency_definitions=[],  # TODO
             dependency_destinations=[],  # TODO
         )
