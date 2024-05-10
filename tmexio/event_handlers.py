@@ -14,6 +14,11 @@ from tmexio.packagers import CodedPackager, ErrorPackager
 from tmexio.structures import ClientEvent
 from tmexio.types import DataOrTuple, DataType
 
+ExtractedMarkers = dict[Marker[Any], Any]
+ParsedBody = BaseModel | None
+KwargsIterator = Iterator[tuple[str, Any]]
+Kwargs = dict[str, Any]
+
 
 class BaseAsyncHandler:
     def __init__(
@@ -31,9 +36,7 @@ class BaseAsyncHandler:
             (marker, marker.extract(event)) for marker in self.markers_definitions
         )
 
-    def markers_to_kwargs(
-        self, markers: dict[Marker[Any], Any]
-    ) -> Iterator[tuple[str, Any]]:
+    def markers_to_kwargs(self, markers: ExtractedMarkers) -> KwargsIterator:
         for marker, parameter_names in self.marker_destinations:
             yield from ((name, markers[marker]) for name in parameter_names)
 
@@ -75,7 +78,7 @@ class BaseAsyncHandlerWithArguments(BaseAsyncHandler, ABC):
         self.body_destinations = body_destinations
         self.possible_exceptions = possible_exceptions
 
-    def parse_body(self, event: ClientEvent) -> BaseModel | None:
+    def parse_body(self, event: ClientEvent) -> ParsedBody:
         if self.body_model is None:
             if len(event.args) != 0 and event.args[0] is not None:
                 raise self.zero_arguments_expected_error
@@ -89,7 +92,7 @@ class BaseAsyncHandlerWithArguments(BaseAsyncHandler, ABC):
             except ValidationError as e:
                 raise EventBodyException(e)
 
-    def body_to_kwargs(self, body: BaseModel | None) -> Iterator[tuple[str, Any]]:
+    def body_to_kwargs(self, body: ParsedBody) -> KwargsIterator:
         if body is None:
             return
 
@@ -99,8 +102,8 @@ class BaseAsyncHandlerWithArguments(BaseAsyncHandler, ABC):
             yield from ((name, value) for name in parameter_names)
 
     def build_kwargs(
-        self, markers: dict[Marker[Any], Any], body: BaseModel | None
-    ) -> Iterator[tuple[str, Any]]:
+        self, markers: ExtractedMarkers, body: ParsedBody
+    ) -> KwargsIterator:
         yield from self.markers_to_kwargs(markers)
         yield from self.body_to_kwargs(body)
 
@@ -132,9 +135,9 @@ class AsyncEventHandler(BaseAsyncHandlerWithArguments):
         except EventException as e:
             return self.error_packager.pack_data(e)
 
-        markers: dict[Marker[Any], Any] = dict(self.collect_markers(event))
+        markers: ExtractedMarkers = dict(self.collect_markers(event))
 
-        kwargs: dict[str, Any] = dict(self.build_kwargs(markers, body))
+        kwargs: Kwargs = dict(self.build_kwargs(markers, body))
 
         try:
             result = await self.async_callable(**kwargs)
@@ -156,9 +159,9 @@ class AsyncConnectHandler(BaseAsyncHandlerWithArguments):
         except EventException as e:
             raise ConnectionRefusedError(self.error_packager.pack_data(e))
 
-        markers: dict[Marker[Any], Any] = dict(self.collect_markers(event))
+        markers: ExtractedMarkers = dict(self.collect_markers(event))
 
-        kwargs: dict[str, Any] = dict(self.build_kwargs(markers, body))
+        kwargs: Kwargs = dict(self.build_kwargs(markers, body))
 
         try:
             await self.async_callable(**kwargs)
@@ -173,7 +176,7 @@ class AsyncConnectHandler(BaseAsyncHandlerWithArguments):
 class AsyncDisconnectHandler(BaseAsyncHandler):
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
         # Here `event.args` is always empty
-        markers = dict(self.collect_markers(event))
-        kwargs = dict(self.markers_to_kwargs(markers))
+        markers: ExtractedMarkers = dict(self.collect_markers(event))
+        kwargs: Kwargs = dict(self.markers_to_kwargs(markers))
         await self.async_callable(**kwargs)
         return None
