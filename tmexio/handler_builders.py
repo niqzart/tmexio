@@ -13,7 +13,7 @@ from tmexio.event_handlers import (
     AsyncDisconnectHandler,
     AsyncEventHandler,
     BaseAsyncHandler,
-    BaseAsyncHandlerWithArguments,
+    BaseAsyncHandlerWithExceptions,
 )
 from tmexio.exceptions import EventException
 from tmexio.server import AsyncServer, AsyncSocket
@@ -121,7 +121,7 @@ class HandlerBuilder(Generic[HandlerType]):
 
 
 HandlerWithExceptionsType = TypeVar(
-    "HandlerWithExceptionsType", bound=BaseAsyncHandlerWithArguments
+    "HandlerWithExceptionsType", bound=BaseAsyncHandlerWithExceptions
 )
 
 
@@ -239,6 +239,8 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
             async_callable=self.build_async_callable(),
             marker_definitions=self.destinations.build_marker_definitions(),
             marker_destinations=self.destinations.build_marker_destinations(),
+            body_model=None,
+            body_destinations=[],
         )
 
     @classmethod
