@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -48,6 +48,9 @@ class Depends:
 class BuilderContext:
     marker_definitions: set[markers.Marker[Any]] = field(default_factory=set)
     body_annotations: dict[str, Any] = field(default_factory=dict)
+    dependency_order: OrderedDict[DependencyCacheKey, None] = field(
+        default_factory=OrderedDict
+    )
     dependency_definitions: dict[DependencyCacheKey, BaseDependency] = field(
         default_factory=dict
     )
@@ -67,7 +70,10 @@ class BuilderContext:
     def build_dependency_definitions(
         self,
     ) -> list[tuple[DependencyCacheKey, BaseDependency]]:
-        return list(self.dependency_definitions.items())
+        return [
+            (key, self.dependency_definitions[key])
+            for key in reversed(self.dependency_order)
+        ]
 
 
 Key = TypeVar("Key")
@@ -122,18 +128,21 @@ class RunnableBuilder:
         self.context.body_annotations[field_name] = parameter_annotation
         self.body_destinations.add(field_name, field_name)
 
-    def build_sub_dependency(self, depends: Depends) -> BaseDependency:
-        return DependencyBuilder(
+    def build_sub_dependency(self, depends: Depends) -> None:
+        self.context.dependency_definitions[depends.function] = DependencyBuilder(
             function=depends.function,
             possible_exceptions=depends.exceptions,
             builder_context=self.context,
         ).build()
 
     def add_dependency_destination(self, depends: Depends, field_name: str) -> None:
-        if depends.function not in self.context.dependency_definitions:
-            self.context.dependency_definitions[depends.function] = (
-                self.build_sub_dependency(depends)
-            )
+        if depends.function in self.context.dependency_order:
+            self.context.dependency_order.move_to_end(depends.function)
+        else:
+            self.context.dependency_order[  # noqa: WPS529  # linter bug
+                depends.function
+            ] = None
+            self.build_sub_dependency(depends)
         self.dependency_destinations.add(depends.function, field_name)
 
     def parse_parameter(self, parameter: Parameter) -> None:

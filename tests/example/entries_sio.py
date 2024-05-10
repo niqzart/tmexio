@@ -16,8 +16,7 @@ async def maybe_get_hello_by_id(hello_id: str) -> HelloModel | None:
 MaybeHelloById = Annotated[HelloModel | None, Depends(maybe_get_hello_by_id)]
 
 
-async def get_hello_by_id(hello_id: str) -> HelloModel:
-    hello = HelloModel.find_first_by_id(hello_id)
+async def get_hello_by_id(hello: MaybeHelloById) -> HelloModel:
     if hello is None:
         raise not_found_exception
     return hello
