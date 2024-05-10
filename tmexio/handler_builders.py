@@ -13,7 +13,6 @@ from tmexio.event_handlers import (
     AsyncDisconnectHandler,
     AsyncEventHandler,
     BaseAsyncHandler,
-    BaseAsyncHandlerWithExceptions,
 )
 from tmexio.exceptions import EventException
 from tmexio.server import AsyncServer, AsyncSocket
@@ -111,6 +110,14 @@ class HandlerBuilder(Generic[HandlerType]):
         raise NotImplementedError
 
     @classmethod
+    def build_exceptions(cls, handler: HandlerType) -> Iterator[EventException]:
+        yield from list(handler.possible_exceptions)
+        if handler.body_model is None:
+            yield handler.zero_arguments_expected_error
+        else:
+            yield handler.one_argument_expected_error
+
+    @classmethod
     def build_spec_from_handler(
         cls,
         handler: HandlerType,
@@ -120,27 +127,7 @@ class HandlerBuilder(Generic[HandlerType]):
         raise NotImplementedError
 
 
-HandlerWithExceptionsType = TypeVar(
-    "HandlerWithExceptionsType", bound=BaseAsyncHandlerWithExceptions
-)
-
-
-class HandlerWithExceptionsBuilder(
-    HandlerBuilder[HandlerWithExceptionsType],
-    Generic[HandlerWithExceptionsType],
-):
-    @classmethod
-    def build_exceptions(
-        cls, handler: HandlerWithExceptionsType
-    ) -> Iterator[EventException]:
-        yield from list(handler.possible_exceptions)
-        if handler.body_model is None:
-            yield handler.zero_arguments_expected_error
-        else:
-            yield handler.one_argument_expected_error
-
-
-class EventHandlerBuilder(HandlerWithExceptionsBuilder[AsyncEventHandler]):
+class EventHandlerBuilder(HandlerBuilder[AsyncEventHandler]):
     def parse_return_annotation(self) -> packagers.CodedPackager[Any]:
         annotation = self.signature.return_annotation
         args = get_args(annotation)
@@ -189,7 +176,7 @@ class EventHandlerBuilder(HandlerWithExceptionsBuilder[AsyncEventHandler]):
         )
 
 
-class ConnectHandlerBuilder(HandlerWithExceptionsBuilder[AsyncConnectHandler]):
+class ConnectHandlerBuilder(HandlerBuilder[AsyncConnectHandler]):
     def build_handler(self) -> AsyncConnectHandler:
         for parameter in self.signature.parameters.values():
             self.parse_parameter(parameter)
@@ -243,8 +230,6 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
             async_callable=self.build_async_callable(),
             marker_definitions=self.destinations.build_marker_definitions(),
             marker_destinations=self.destinations.build_marker_destinations(),
-            body_model=None,
-            body_destinations=[],
             dependency_definitions=[],  # TODO
             dependency_destinations=[],  # TODO
         )

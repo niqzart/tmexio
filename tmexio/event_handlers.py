@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from abc import ABC
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import dataclass, field
@@ -122,6 +121,8 @@ class ContextualDependency(BaseDependency):
 
 
 class BaseAsyncHandler(KwargsBuilder):
+    error_packager: ErrorPackager = ErrorPackager()
+
     zero_arguments_expected_error = EventException(422, "Event expects zero arguments")
     one_argument_expected_error = EventException(422, "Event expects one argument")
 
@@ -134,6 +135,7 @@ class BaseAsyncHandler(KwargsBuilder):
         body_destinations: list[tuple[str, list[str]]],
         dependency_definitions: list[tuple[DependencyCacheKey, BaseDependency]],
         dependency_destinations: list[tuple[DependencyCacheKey, list[str]]],
+        possible_exceptions: set[EventException],
     ) -> None:
         super().__init__(
             marker_destinations=marker_destinations,
@@ -144,6 +146,7 @@ class BaseAsyncHandler(KwargsBuilder):
         self.markers_definitions = marker_definitions
         self.body_model = body_model
         self.dependency_definitions = dependency_definitions
+        self.possible_exceptions = possible_exceptions
 
     def collect_markers(self, event: ClientEvent) -> ExtractedMarkers:
         return {marker: marker.extract(event) for marker in self.markers_definitions}
@@ -182,33 +185,7 @@ class BaseAsyncHandler(KwargsBuilder):
         raise NotImplementedError
 
 
-class BaseAsyncHandlerWithExceptions(BaseAsyncHandler, ABC):
-    error_packager: ErrorPackager = ErrorPackager()
-
-    def __init__(
-        self,
-        async_callable: Callable[..., Awaitable[Any]],
-        marker_definitions: list[Marker[Any]],
-        marker_destinations: list[tuple[Marker[Any], list[str]]],
-        body_model: type[BaseModel] | None,
-        body_destinations: list[tuple[str, list[str]]],
-        dependency_definitions: list[tuple[DependencyCacheKey, BaseDependency]],
-        dependency_destinations: list[tuple[DependencyCacheKey, list[str]]],
-        possible_exceptions: set[EventException],
-    ) -> None:
-        super().__init__(
-            async_callable=async_callable,
-            marker_definitions=marker_definitions,
-            marker_destinations=marker_destinations,
-            body_model=body_model,
-            body_destinations=body_destinations,
-            dependency_definitions=dependency_definitions,
-            dependency_destinations=dependency_destinations,
-        )
-        self.possible_exceptions = possible_exceptions
-
-
-class AsyncEventHandler(BaseAsyncHandlerWithExceptions):
+class AsyncEventHandler(BaseAsyncHandler):
     def __init__(
         self,
         async_callable: Callable[..., Awaitable[Any]],
@@ -251,7 +228,7 @@ class AsyncEventHandler(BaseAsyncHandlerWithExceptions):
         return self.ack_packager.pack_data(result)
 
 
-class AsyncConnectHandler(BaseAsyncHandlerWithExceptions):
+class AsyncConnectHandler(BaseAsyncHandler):
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
         # Here `event.args` has at most one argument
 
@@ -272,6 +249,25 @@ class AsyncConnectHandler(BaseAsyncHandlerWithExceptions):
 
 
 class AsyncDisconnectHandler(BaseAsyncHandler):
+    def __init__(
+        self,
+        async_callable: Callable[..., Awaitable[Any]],
+        marker_definitions: list[Marker[Any]],
+        marker_destinations: list[tuple[Marker[Any], list[str]]],
+        dependency_definitions: list[tuple[DependencyCacheKey, BaseDependency]],
+        dependency_destinations: list[tuple[DependencyCacheKey, list[str]]],
+    ) -> None:
+        super().__init__(
+            async_callable=async_callable,
+            marker_definitions=marker_definitions,
+            marker_destinations=marker_destinations,
+            body_model=None,
+            body_destinations=[],
+            dependency_definitions=dependency_definitions,
+            dependency_destinations=dependency_destinations,
+            possible_exceptions=set(),
+        )
+
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
         # Here `event.args` is always empty
         markers: ExtractedMarkers = self.collect_markers(event)
