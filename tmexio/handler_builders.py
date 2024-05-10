@@ -167,6 +167,8 @@ class EventHandlerBuilder(HandlerWithExceptionsBuilder[AsyncEventHandler]):
             body_model=self.destinations.build_body_model(),
             body_destinations=self.destinations.build_body_destinations(),
             possible_exceptions=set(self.possible_exceptions),
+            dependency_definitions=[],  # TODO
+            dependency_destinations=[],  # TODO
             ack_packager=ack_packager,
         )
 
@@ -201,6 +203,8 @@ class ConnectHandlerBuilder(HandlerWithExceptionsBuilder[AsyncConnectHandler]):
             marker_destinations=self.destinations.build_marker_destinations(),
             body_model=self.destinations.build_body_model(),
             body_destinations=self.destinations.build_body_destinations(),
+            dependency_definitions=[],  # TODO
+            dependency_destinations=[],  # TODO
             possible_exceptions=set(self.possible_exceptions),
         )
 
@@ -241,6 +245,8 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
             marker_destinations=self.destinations.build_marker_destinations(),
             body_model=None,
             body_destinations=[],
+            dependency_definitions=[],  # TODO
+            dependency_destinations=[],  # TODO
         )
 
     @classmethod
