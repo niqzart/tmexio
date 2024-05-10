@@ -38,10 +38,10 @@ class Depends:
     def __init__(
         self,
         function: DependencyCacheKey,
-        exceptions: list[EventException] | None = None,
+        exceptions: list[EventException],
     ) -> None:
         self.function = function
-        self.exceptions = exceptions or []
+        self.exceptions = exceptions
 
 
 @dataclass()

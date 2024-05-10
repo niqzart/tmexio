@@ -9,11 +9,20 @@ from socketio.packet import Packet  # type: ignore[import-untyped]
 
 from tmexio.event_handlers import BaseAsyncHandler
 from tmexio.exceptions import EventException
-from tmexio.handler_builders import pick_handler_class_by_event_name
+from tmexio.handler_builders import Depends, pick_handler_class_by_event_name
 from tmexio.server import AsyncServer
 from tmexio.specs import HandlerSpec
 from tmexio.structures import ClientEvent
-from tmexio.types import ASGIAppProtocol, DataOrTuple, DataType
+from tmexio.types import AnyCallable, ASGIAppProtocol, DataOrTuple, DataType
+
+
+def register_dependency(
+    exceptions: list[EventException] | None = None,
+) -> Callable[[AnyCallable], Depends]:
+    def register_dependency_inner(function: AnyCallable) -> Depends:
+        return Depends(function=function, exceptions=exceptions or [])
+
+    return register_dependency_inner
 
 
 class EventRouter:
