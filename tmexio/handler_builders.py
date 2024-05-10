@@ -56,10 +56,7 @@ class Destinations(Generic[Key]):
         ]
 
 
-HandlerType = TypeVar("HandlerType", bound=BaseAsyncHandler)
-
-
-class HandlerBuilder(Generic[HandlerType]):
+class RunnableBuilder:
     type_to_marker: dict[type[Any], markers.Marker[Any]] = {
         AsyncServer: markers.AsyncServerMarker(),
         AsyncSocket: markers.AsyncSocketMarker(),
@@ -70,6 +67,7 @@ class HandlerBuilder(Generic[HandlerType]):
         self,
         function: Callable[..., Any],
         possible_exceptions: list[EventException],
+        builder_context: BuilderContext,
     ) -> None:
         self.function = function
         self.signature: Signature = signature(function)
@@ -77,7 +75,8 @@ class HandlerBuilder(Generic[HandlerType]):
         self.marker_destinations: Destinations[markers.Marker[Any]] = Destinations()
         self.body_destinations: Destinations[str] = Destinations()
 
-        self.context = BuilderContext(possible_exceptions=set(possible_exceptions))
+        self.context = builder_context
+        self.context.possible_exceptions.update(possible_exceptions)
 
     def add_marker_destination(
         self, marker: markers.Marker[Any], field_name: str
@@ -119,6 +118,22 @@ class HandlerBuilder(Generic[HandlerType]):
         elif callable(self.function):
             return sync_to_async(self.function)
         raise TypeError("Handler is not callable")
+
+
+HandlerType = TypeVar("HandlerType", bound=BaseAsyncHandler)
+
+
+class HandlerBuilder(RunnableBuilder, Generic[HandlerType]):
+    def __init__(
+        self,
+        function: Callable[..., Any],
+        possible_exceptions: list[EventException],
+    ) -> None:
+        super().__init__(
+            function=function,
+            possible_exceptions=possible_exceptions,
+            builder_context=BuilderContext(),
+        )
 
     def build_handler(self) -> HandlerType:
         raise NotImplementedError
