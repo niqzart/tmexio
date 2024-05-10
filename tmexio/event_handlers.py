@@ -19,15 +19,23 @@ class BaseAsyncHandler:
     def __init__(
         self,
         async_callable: Callable[..., Awaitable[Any]],
+        marker_definitions: list[Marker[Any]],
         marker_destinations: list[tuple[Marker[Any], list[str]]],
     ) -> None:
         self.async_callable = async_callable
+        self.markers_definitions = marker_definitions
         self.marker_destinations = marker_destinations
 
-    def build_markers(self, event: ClientEvent) -> Iterator[tuple[str, Any]]:
+    def collect_markers(self, event: ClientEvent) -> Iterator[tuple[Marker[Any], Any]]:
+        yield from (
+            (marker, marker.extract(event)) for marker in self.markers_definitions
+        )
+
+    def markers_to_kwargs(
+        self, markers: dict[Marker[Any], Any]
+    ) -> Iterator[tuple[str, Any]]:
         for marker, parameter_names in self.marker_destinations:
-            value = marker.extract(event)
-            yield from ((name, value) for name in parameter_names)
+            yield from ((name, markers[marker]) for name in parameter_names)
 
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
         raise NotImplementedError
@@ -52,6 +60,7 @@ class BaseAsyncHandlerWithArguments(BaseAsyncHandler, ABC):
     def __init__(
         self,
         async_callable: Callable[..., Awaitable[Any]],
+        marker_definitions: list[Marker[Any]],
         marker_destinations: list[tuple[Marker[Any], list[str]]],
         body_model: type[BaseModel] | None,
         body_destinations: list[tuple[str, list[str]]],
@@ -59,35 +68,48 @@ class BaseAsyncHandlerWithArguments(BaseAsyncHandler, ABC):
     ) -> None:
         super().__init__(
             async_callable=async_callable,
+            marker_definitions=marker_definitions,
             marker_destinations=marker_destinations,
         )
         self.body_model = body_model
         self.body_destinations = body_destinations
         self.possible_exceptions = possible_exceptions
 
-    def parse_args(self, event: ClientEvent) -> Iterator[tuple[str, Any]]:
+    def parse_body(self, event: ClientEvent) -> BaseModel | None:
         if self.body_model is None:
             if len(event.args) != 0 and event.args[0] is not None:
                 raise self.zero_arguments_expected_error
+            return None
         else:
             if len(event.args) != 1:
                 raise self.one_argument_expected_error
 
             try:
-                body = self.body_model.model_validate(event.args[0])
+                return self.body_model.model_validate(event.args[0])
             except ValidationError as e:
                 raise EventBodyException(e)
 
-            for field_name, parameter_names in self.body_destinations:
-                # TODO replace fallback with error or warning
-                value = getattr(body, field_name, None)
-                yield from ((name, value) for name in parameter_names)
+    def body_to_kwargs(self, body: BaseModel | None) -> Iterator[tuple[str, Any]]:
+        if body is None:
+            return
+
+        for field_name, parameter_names in self.body_destinations:
+            # TODO replace fallback with error or warning
+            value = getattr(body, field_name, None)
+            yield from ((name, value) for name in parameter_names)
+
+    def build_kwargs(
+        self, markers: dict[Marker[Any], Any], body: BaseModel | None
+    ) -> Iterator[tuple[str, Any]]:
+        yield from self.markers_to_kwargs(markers)
+        yield from self.body_to_kwargs(body)
 
 
 class AsyncEventHandler(BaseAsyncHandlerWithArguments):
     def __init__(
         self,
         async_callable: Callable[..., Awaitable[Any]],
+        marker_definitions: list[Marker[Any]],
         marker_destinations: list[tuple[Marker[Any], list[str]]],
         body_model: type[BaseModel] | None,
         body_destinations: list[tuple[str, list[str]]],
@@ -96,6 +118,7 @@ class AsyncEventHandler(BaseAsyncHandlerWithArguments):
     ) -> None:
         super().__init__(
             async_callable=async_callable,
+            marker_definitions=marker_definitions,
             marker_destinations=marker_destinations,
             body_model=body_model,
             body_destinations=body_destinations,
@@ -105,11 +128,13 @@ class AsyncEventHandler(BaseAsyncHandlerWithArguments):
 
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
         try:
-            kwargs: dict[str, Any] = dict(self.parse_args(event))
+            body = self.parse_body(event)
         except EventException as e:
             return self.error_packager.pack_data(e)
 
-        kwargs.update(self.build_markers(event))
+        markers: dict[Marker[Any], Any] = dict(self.collect_markers(event))
+
+        kwargs: dict[str, Any] = dict(self.build_kwargs(markers, body))
 
         try:
             result = await self.async_callable(**kwargs)
@@ -127,11 +152,13 @@ class AsyncConnectHandler(BaseAsyncHandlerWithArguments):
         # Here `event.args` has at most one argument
 
         try:
-            kwargs: dict[str, Any] = dict(self.parse_args(event))
+            body = self.parse_body(event)
         except EventException as e:
             raise ConnectionRefusedError(self.error_packager.pack_data(e))
 
-        kwargs.update(self.build_markers(event))
+        markers: dict[Marker[Any], Any] = dict(self.collect_markers(event))
+
+        kwargs: dict[str, Any] = dict(self.build_kwargs(markers, body))
 
         try:
             await self.async_callable(**kwargs)
@@ -146,6 +173,7 @@ class AsyncConnectHandler(BaseAsyncHandlerWithArguments):
 class AsyncDisconnectHandler(BaseAsyncHandler):
     async def __call__(self, event: ClientEvent) -> DataOrTuple:
         # Here `event.args` is always empty
-        kwargs = dict(self.build_markers(event))
+        markers = dict(self.collect_markers(event))
+        kwargs = dict(self.markers_to_kwargs(markers))
         await self.async_callable(**kwargs)
         return None

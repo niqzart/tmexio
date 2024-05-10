@@ -38,6 +38,9 @@ class Destinations:
         self.body_annotations[field_name] = parameter_annotation
         self.body_destinations.setdefault(field_name, set()).add(field_name)
 
+    def build_marker_definitions(self) -> list[markers.Marker[Any]]:
+        return list(self.markers.keys())
+
     def build_marker_destinations(self) -> list[tuple[markers.Marker[Any], list[str]]]:
         return [
             (marker, list(destinations))
@@ -159,6 +162,7 @@ class EventHandlerBuilder(HandlerWithExceptionsBuilder[AsyncEventHandler]):
 
         return AsyncEventHandler(
             async_callable=self.build_async_callable(),
+            marker_definitions=self.destinations.build_marker_definitions(),
             marker_destinations=self.destinations.build_marker_destinations(),
             body_model=self.destinations.build_body_model(),
             body_destinations=self.destinations.build_body_destinations(),
@@ -193,6 +197,7 @@ class ConnectHandlerBuilder(HandlerWithExceptionsBuilder[AsyncConnectHandler]):
 
         return AsyncConnectHandler(
             async_callable=self.build_async_callable(),
+            marker_definitions=self.destinations.build_marker_definitions(),
             marker_destinations=self.destinations.build_marker_destinations(),
             body_model=self.destinations.build_body_model(),
             body_destinations=self.destinations.build_body_destinations(),
@@ -232,6 +237,7 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
 
         return AsyncDisconnectHandler(
             async_callable=self.build_async_callable(),
+            marker_definitions=self.destinations.build_marker_definitions(),
             marker_destinations=self.destinations.build_marker_destinations(),
         )
 
