@@ -17,11 +17,10 @@ from tmexio.exceptions import (
 from tmexio.markers import Marker
 from tmexio.packagers import CodedPackager, ErrorPackager
 from tmexio.structures import ClientEvent
-from tmexio.types import DataOrTuple
+from tmexio.types import DataOrTuple, DependencyCacheKey
 
 ExtractedMarkers = dict[Marker[Any], Any]
 ParsedBody = BaseModel | None
-DependencyCacheKey = Callable[..., Awaitable[Any]]
 ResolvedDependencies = dict[DependencyCacheKey, Any]
 KwargsIterator = Iterator[tuple[str, Any]]
 Kwargs = dict[str, Any]

@@ -2,8 +2,16 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from inspect import Parameter, Signature, iscoroutinefunction, signature
+from inspect import (
+    Parameter,
+    Signature,
+    isasyncgenfunction,
+    iscoroutinefunction,
+    isgeneratorfunction,
+    signature,
+)
 from typing import Annotated, Any, Generic, TypeVar, get_args, get_origin
 
 from asgiref.sync import sync_to_async
@@ -15,17 +23,34 @@ from tmexio.event_handlers import (
     AsyncDisconnectHandler,
     AsyncEventHandler,
     BaseAsyncHandler,
+    BaseDependency,
+    ContextualDependency,
+    ValueDependency,
 )
 from tmexio.exceptions import EventException
 from tmexio.server import AsyncServer, AsyncSocket
 from tmexio.specs import HandlerSpec
 from tmexio.structures import ClientEvent
+from tmexio.types import DependencyCacheKey
+
+
+class Depends:
+    def __init__(
+        self,
+        function: DependencyCacheKey,
+        exceptions: list[EventException] | None = None,
+    ) -> None:
+        self.function = function
+        self.exceptions = exceptions or []
 
 
 @dataclass()
 class BuilderContext:
     marker_definitions: set[markers.Marker[Any]] = field(default_factory=set)
     body_annotations: dict[str, Any] = field(default_factory=dict)
+    dependency_definitions: dict[DependencyCacheKey, BaseDependency] = field(
+        default_factory=dict
+    )
     possible_exceptions: set[EventException] = field(default_factory=set)
 
     def build_marker_definitions(self) -> list[markers.Marker[Any]]:
@@ -38,6 +63,11 @@ class BuilderContext:
             "Model",  # TODO better naming
             **self.body_annotations,
         )
+
+    def build_dependency_definitions(
+        self,
+    ) -> list[tuple[DependencyCacheKey, BaseDependency]]:
+        return list(self.dependency_definitions.items())
 
 
 Key = TypeVar("Key")
@@ -74,6 +104,7 @@ class RunnableBuilder:
 
         self.marker_destinations: Destinations[markers.Marker[Any]] = Destinations()
         self.body_destinations: Destinations[str] = Destinations()
+        self.dependency_destinations: Destinations[DependencyCacheKey] = Destinations()
 
         self.context = builder_context
         self.context.possible_exceptions.update(possible_exceptions)
@@ -91,6 +122,20 @@ class RunnableBuilder:
         self.context.body_annotations[field_name] = parameter_annotation
         self.body_destinations.add(field_name, field_name)
 
+    def build_sub_dependency(self, depends: Depends) -> BaseDependency:
+        return DependencyBuilder(
+            function=depends.function,
+            possible_exceptions=depends.exceptions,
+            builder_context=self.context,
+        ).build()
+
+    def add_dependency_destination(self, depends: Depends, field_name: str) -> None:
+        if depends.function not in self.context.dependency_definitions:
+            self.context.dependency_definitions[depends.function] = (
+                self.build_sub_dependency(depends)
+            )
+        self.dependency_destinations.add(depends.function, field_name)
+
     def parse_parameter(self, parameter: Parameter) -> None:
         annotation = parameter.annotation
         if isinstance(annotation, type):
@@ -105,6 +150,12 @@ class RunnableBuilder:
             and isinstance(args[1], markers.Marker)
         ):
             self.add_marker_destination(args[1], parameter.name)
+        elif (  # noqa: WPS337
+            get_origin(annotation) is Annotated
+            and len(args) == 2
+            and isinstance(args[1], Depends)
+        ):
+            self.add_dependency_destination(args[1], parameter.name)
         else:
             self.add_body_field(parameter.name, parameter.annotation)
 
@@ -118,6 +169,28 @@ class RunnableBuilder:
         elif callable(self.function):
             return sync_to_async(self.function)
         raise TypeError("Handler is not callable")
+
+
+class DependencyBuilder(RunnableBuilder):
+    def build(self) -> BaseDependency:
+        self.parse_parameters()
+
+        if isasyncgenfunction(self.function):
+            return ContextualDependency(
+                dependency_function=asynccontextmanager(self.function),
+                marker_destinations=self.marker_destinations.extract(),
+                body_destinations=self.body_destinations.extract(),
+                dependency_destinations=self.dependency_destinations.extract(),
+            )
+        elif isgeneratorfunction(self.function):
+            raise NotImplementedError("Sync generators are not supported")  # TODO
+
+        return ValueDependency(
+            async_callable=self.build_async_callable(),
+            marker_destinations=self.marker_destinations.extract(),
+            body_destinations=self.body_destinations.extract(),
+            dependency_destinations=self.dependency_destinations.extract(),
+        )
 
 
 HandlerType = TypeVar("HandlerType", bound=BaseAsyncHandler)
@@ -181,9 +254,9 @@ class EventHandlerBuilder(HandlerBuilder[AsyncEventHandler]):
             marker_destinations=self.marker_destinations.extract(),
             body_model=self.context.build_body_model(),
             body_destinations=self.body_destinations.extract(),
+            dependency_definitions=self.context.build_dependency_definitions(),
+            dependency_destinations=self.dependency_destinations.extract(),
             possible_exceptions=self.context.possible_exceptions,
-            dependency_definitions=[],  # TODO
-            dependency_destinations=[],  # TODO
             ack_packager=ack_packager,
         )
 
@@ -217,8 +290,8 @@ class ConnectHandlerBuilder(HandlerBuilder[AsyncConnectHandler]):
             marker_destinations=self.marker_destinations.extract(),
             body_model=self.context.build_body_model(),
             body_destinations=self.body_destinations.extract(),
-            dependency_definitions=[],  # TODO
-            dependency_destinations=[],  # TODO
+            dependency_definitions=self.context.build_dependency_definitions(),
+            dependency_destinations=self.dependency_destinations.extract(),
             possible_exceptions=self.context.possible_exceptions,
         )
 
@@ -256,8 +329,8 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
             async_callable=self.build_async_callable(),
             marker_definitions=self.context.build_marker_definitions(),
             marker_destinations=self.marker_destinations.extract(),
-            dependency_definitions=[],  # TODO
-            dependency_destinations=[],  # TODO
+            dependency_definitions=self.context.build_dependency_definitions(),
+            dependency_destinations=self.dependency_destinations.extract(),
         )
 
     @classmethod
