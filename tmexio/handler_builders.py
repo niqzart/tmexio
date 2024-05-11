@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections import OrderedDict, defaultdict
+from collections import defaultdict
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -50,10 +50,10 @@ class Depends:
 class BuilderContext:
     marker_definitions: set[markers.Marker[Any]] = field(default_factory=set)
     body_annotations: dict[str, Any] = field(default_factory=dict)
-    dependency_order: OrderedDict[DependencyCacheKey, None] = field(
-        default_factory=OrderedDict
-    )  # order is reversed
     dependency_definitions: dict[DependencyCacheKey, BaseDependency] = field(
+        default_factory=dict
+    )
+    dependency_graph: dict[DependencyCacheKey, set[DependencyCacheKey]] = field(
         default_factory=dict
     )
     possible_exceptions: set[EventException] = field(default_factory=set)
@@ -69,12 +69,31 @@ class BuilderContext:
             **self.body_annotations,
         )
 
+    def iter_ordered_dependency_keys(self) -> Iterator[DependencyCacheKey]:
+        unresolved: dict[DependencyCacheKey, set[DependencyCacheKey]] = {
+            key: set(sub_dependencies)
+            for key, sub_dependencies in self.dependency_graph.items()
+        }
+        while len(unresolved) != 0:
+            layer = [
+                key
+                for key, sub_dependencies in unresolved.items()
+                if len(sub_dependencies) == 0
+            ]
+            if len(layer) == 0:
+                raise RecursionError("Cycle detected in the dependency graph")
+            yield from layer
+            for resolved in layer:
+                unresolved.pop(resolved)
+                for sub_dependencies in unresolved.values():
+                    sub_dependencies.discard(resolved)
+
     def build_dependency_definitions(
         self,
     ) -> list[tuple[DependencyCacheKey, BaseDependency]]:
         return [
             (key, self.dependency_definitions[key])
-            for key in reversed(self.dependency_order)
+            for key in self.iter_ordered_dependency_keys()
         ]
 
 
@@ -117,7 +136,7 @@ class RunnableBuilder:
 
         self.context = builder_context
         self.context.possible_exceptions.update(possible_exceptions)
-        for depends in reversed(sub_dependencies):
+        for depends in sub_dependencies:
             self.add_sub_dependency(depends)
 
     def add_marker_destination(
@@ -143,13 +162,19 @@ class RunnableBuilder:
         ).build()
 
     def add_sub_dependency(self, depends: Depends) -> None:
-        if depends.function in self.context.dependency_order:
-            self.context.dependency_order.move_to_end(depends.function)
-        else:
-            self.context.dependency_order[  # noqa: WPS529  # linter bug
-                depends.function
-            ] = None
-            self.build_sub_dependency(depends)
+        if depends.function in self.context.dependency_graph:
+            return
+
+        dependency = DependencyBuilder(
+            function=depends.function,
+            possible_exceptions=depends.exceptions,
+            sub_dependencies=depends.dependencies,
+            builder_context=self.context,
+        ).build()
+        sub_dependencies = {key for key, _ in dependency.dependency_destinations}
+
+        self.context.dependency_definitions[depends.function] = dependency
+        self.context.dependency_graph[depends.function] = sub_dependencies
 
     def add_dependency_destination(self, depends: Depends, field_name: str) -> None:
         self.add_sub_dependency(depends)
