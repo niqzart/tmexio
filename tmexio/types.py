@@ -3,6 +3,7 @@ from typing import Any, Protocol
 
 AnyKwargs = dict[str, Any]
 AnyCallable = Callable[..., Any]
+DependencyCacheKey = AnyCallable
 
 DataType = None | int | str | bytes | dict["DataType", "DataType"] | list["DataType"]
 DataOrTuple = DataType | tuple[DataType, ...]

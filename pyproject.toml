@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "tmexio"
-version = "0.0.1"
+version = "0.1.0"
 description = "Python framework for building SocketIO applications with typing, dependency injection and more"
 authors = ["niqzart <niqzart@gmail.com>"]
 readme = "README.md"
