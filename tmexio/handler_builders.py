@@ -39,9 +39,11 @@ class Depends:
         self,
         function: DependencyCacheKey,
         exceptions: list[EventException],
+        dependencies: list[Depends],
     ) -> None:
         self.function = function
         self.exceptions = exceptions
+        self.dependencies = dependencies
 
 
 @dataclass()
@@ -50,7 +52,7 @@ class BuilderContext:
     body_annotations: dict[str, Any] = field(default_factory=dict)
     dependency_order: OrderedDict[DependencyCacheKey, None] = field(
         default_factory=OrderedDict
-    )
+    )  # order is reversed
     dependency_definitions: dict[DependencyCacheKey, BaseDependency] = field(
         default_factory=dict
     )
@@ -103,6 +105,7 @@ class RunnableBuilder:
         self,
         function: Callable[..., Any],
         possible_exceptions: list[EventException],
+        sub_dependencies: list[Depends],
         builder_context: BuilderContext,
     ) -> None:
         self.function = function
@@ -114,6 +117,8 @@ class RunnableBuilder:
 
         self.context = builder_context
         self.context.possible_exceptions.update(possible_exceptions)
+        for depends in reversed(sub_dependencies):
+            self.add_sub_dependency(depends)
 
     def add_marker_destination(
         self, marker: markers.Marker[Any], field_name: str
@@ -129,13 +134,15 @@ class RunnableBuilder:
         self.body_destinations.add(field_name, field_name)
 
     def build_sub_dependency(self, depends: Depends) -> None:
+        # TODO reuse built dependencies from building other handlers
         self.context.dependency_definitions[depends.function] = DependencyBuilder(
             function=depends.function,
             possible_exceptions=depends.exceptions,
+            sub_dependencies=depends.dependencies,
             builder_context=self.context,
         ).build()
 
-    def add_dependency_destination(self, depends: Depends, field_name: str) -> None:
+    def add_sub_dependency(self, depends: Depends) -> None:
         if depends.function in self.context.dependency_order:
             self.context.dependency_order.move_to_end(depends.function)
         else:
@@ -143,6 +150,9 @@ class RunnableBuilder:
                 depends.function
             ] = None
             self.build_sub_dependency(depends)
+
+    def add_dependency_destination(self, depends: Depends, field_name: str) -> None:
+        self.add_sub_dependency(depends)
         self.dependency_destinations.add(depends.function, field_name)
 
     def parse_parameter(self, parameter: Parameter) -> None:
@@ -210,10 +220,12 @@ class HandlerBuilder(RunnableBuilder, Generic[HandlerType]):
         self,
         function: Callable[..., Any],
         possible_exceptions: list[EventException],
+        sub_dependencies: list[Depends],
     ) -> None:
         super().__init__(
             function=function,
             possible_exceptions=possible_exceptions,
+            sub_dependencies=sub_dependencies,
             builder_context=BuilderContext(),
         )
 

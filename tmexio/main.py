@@ -18,9 +18,14 @@ from tmexio.types import AnyCallable, ASGIAppProtocol, DataOrTuple, DataType
 
 def register_dependency(
     exceptions: list[EventException] | None = None,
+    dependencies: list[Depends] | None = None,
 ) -> Callable[[AnyCallable], Depends]:
     def register_dependency_inner(function: AnyCallable) -> Depends:
-        return Depends(function=function, exceptions=exceptions or [])
+        return Depends(
+            function=function,
+            exceptions=exceptions or [],
+            dependencies=dependencies or [],
+        )
 
     return register_dependency_inner
 
@@ -43,6 +48,7 @@ class EventRouter:
         summary: str | None = None,
         description: str | None = None,
         exceptions: list[EventException] | None = None,
+        dependencies: list[Depends] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         handler_builder_class = pick_handler_class_by_event_name(event_name)
 
@@ -50,6 +56,7 @@ class EventRouter:
             handler = handler_builder_class(
                 function=function,
                 possible_exceptions=exceptions or [],
+                sub_dependencies=dependencies or [],
             ).build_handler()
             self.add_handler(
                 event_name=event_name,
@@ -69,12 +76,14 @@ class EventRouter:
         summary: str | None = None,
         description: str | None = None,
         exceptions: list[EventException] | None = None,
+        dependencies: list[Depends] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         return self.on(
             event_name="connect",
             summary=summary,
             description=description,
             exceptions=exceptions,
+            dependencies=dependencies,
         )
 
     def on_disconnect(
@@ -82,12 +91,14 @@ class EventRouter:
         summary: str | None = None,
         description: str | None = None,
         exceptions: list[EventException] | None = None,
+        dependencies: list[Depends] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         return self.on(
             event_name="disconnect",
             summary=summary,
             description=description,
             exceptions=exceptions,
+            dependencies=dependencies,
         )
 
     def on_other(
@@ -95,12 +106,14 @@ class EventRouter:
         summary: str | None = None,
         description: str | None = None,
         exceptions: list[EventException] | None = None,
+        dependencies: list[Depends] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
         return self.on(
             event_name="*",
             summary=summary,
             description=description,
             exceptions=exceptions,
+            dependencies=dependencies,
         )
 
     def include_router(self, router: EventRouter) -> None:
