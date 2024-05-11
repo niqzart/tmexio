@@ -31,8 +31,10 @@ def register_dependency(
 
 
 class EventRouter:
-    def __init__(self) -> None:
+    def __init__(self, *, dependencies: list[Depends] | None = None) -> None:
         self.event_handlers: dict[str, tuple[BaseAsyncHandler, HandlerSpec]] = {}
+        self.default_dependencies = dependencies or []
+        # TODO these dependencies do not apply to included routers
 
     def add_handler(
         self,
@@ -56,7 +58,7 @@ class EventRouter:
             handler = handler_builder_class(
                 function=function,
                 possible_exceptions=exceptions or [],
-                sub_dependencies=dependencies or [],
+                sub_dependencies=self.default_dependencies + (dependencies or []),
             ).build_handler()
             self.add_handler(
                 event_name=event_name,
