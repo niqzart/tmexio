@@ -271,6 +271,7 @@ class HandlerBuilder(RunnableBuilder, Generic[HandlerType]):
         handler: HandlerType,
         summary: str | None,
         description: str | None,
+        tags: list[str],
     ) -> HandlerSpec:
         raise NotImplementedError
 
@@ -312,10 +313,12 @@ class EventHandlerBuilder(HandlerBuilder[AsyncEventHandler]):
         handler: AsyncEventHandler,
         summary: str | None,
         description: str | None,
+        tags: list[str],
     ) -> HandlerSpec:
         return HandlerSpec(
             summary=summary,
             description=description,
+            tags=tags,
             exceptions=list(cls.build_exceptions(handler)),
             ack_code=handler.ack_packager.code,
             ack_body_schema=handler.ack_packager.body_json_schema(),
@@ -347,10 +350,12 @@ class ConnectHandlerBuilder(HandlerBuilder[AsyncConnectHandler]):
         handler: AsyncConnectHandler,
         summary: str | None,
         description: str | None,
+        tags: list[str],
     ) -> HandlerSpec:
         return HandlerSpec(
             summary=summary,
             description=description,
+            tags=tags,
             exceptions=list(cls.build_exceptions(handler)),
             ack_code=None,
             ack_body_schema=None,
@@ -385,10 +390,12 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
         handler: AsyncDisconnectHandler,
         summary: str | None,
         description: str | None,
+        tags: list[str],
     ) -> HandlerSpec:
         return HandlerSpec(
             summary=summary,
             description=description,
+            tags=tags,
             exceptions=[],
             ack_code=None,
             ack_body_schema=None,

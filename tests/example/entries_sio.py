@@ -6,7 +6,7 @@ from tests.example.common import ROOM_NAME, not_found_exception
 from tests.example.models_db import HelloModel, HelloSchema
 from tmexio import AsyncSocket, EventRouter, register_dependency
 
-router = EventRouter()
+router = EventRouter(tags=["entries sio"])
 
 
 @register_dependency()
@@ -38,7 +38,7 @@ async def update_hello(
     return hello
 
 
-@router.on("delete-hello")
+@router.on("delete-hello", tags=["deleter"])
 async def delete_hello(hello: MaybeHelloById, socket: AsyncSocket) -> None:
     if hello is not None:
         hello.delete()

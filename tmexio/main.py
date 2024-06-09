@@ -31,9 +31,15 @@ def register_dependency(
 
 
 class EventRouter:
-    def __init__(self, *, dependencies: list[Depends] | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        dependencies: list[Depends] | None = None,
+        tags: list[str] | None = None,
+    ) -> None:
         self.event_handlers: dict[str, tuple[BaseAsyncHandler, HandlerSpec]] = {}
         self.default_dependencies = dependencies or []
+        self.default_tags = tags or []
         # TODO these dependencies do not apply to included routers
 
     def add_handler(
@@ -42,6 +48,7 @@ class EventRouter:
         handler: BaseAsyncHandler,
         spec: HandlerSpec,
     ) -> None:
+        spec.tags.extend(self.default_tags)
         self.event_handlers[event_name] = handler, spec
 
     def on(
@@ -49,6 +56,7 @@ class EventRouter:
         event_name: str,
         summary: str | None = None,
         description: str | None = None,
+        tags: list[str] | None = None,
         exceptions: list[EventException] | None = None,
         dependencies: list[Depends] | None = None,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -66,6 +74,7 @@ class EventRouter:
                 spec=handler_builder_class.build_spec_from_handler(
                     handler=handler,
                     summary=summary,
+                    tags=tags or [],
                     description=description,
                 ),
             )
@@ -132,9 +141,10 @@ class TMEXIO(EventRouter):
         namespaces: Literal["*"] | list[str] | None = None,
         always_connect: bool = False,
         serializer: type[Packet] = Packet,
+        tags: list[str] | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__()
+        super().__init__(tags=tags)
         self.backend = socketio.AsyncServer(
             client_manager=client_manager,
             logger=logger,

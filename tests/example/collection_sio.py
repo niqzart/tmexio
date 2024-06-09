@@ -7,7 +7,7 @@ from tests.example.common import ROOM_NAME
 from tests.example.models_db import HelloModel, HelloSchema
 from tmexio import AsyncSocket, EventRouter, PydanticPackager
 
-router = EventRouter()
+router = EventRouter(tags=["collection sio"])
 
 
 @router.on("list-hellos")
