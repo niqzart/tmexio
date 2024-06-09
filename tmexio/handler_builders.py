@@ -29,7 +29,7 @@ from tmexio.event_handlers import (
 )
 from tmexio.exceptions import EventException
 from tmexio.server import AsyncServer, AsyncSocket
-from tmexio.specs import HandlerSpec
+from tmexio.specs import AckSpec, HandlerSpec
 from tmexio.structures import ClientEvent
 from tmexio.types import DependencyCacheKey
 
@@ -320,9 +320,11 @@ class EventHandlerBuilder(HandlerBuilder[AsyncEventHandler]):
             description=description,
             tags=tags,
             exceptions=list(cls.build_exceptions(handler)),
-            ack_code=handler.ack_packager.code,
-            ack_body_schema=handler.ack_packager.body_json_schema(),
-            event_body_model=handler.body_model,
+            ack=AckSpec(
+                code=handler.ack_packager.code,
+                model=handler.ack_packager.build_body_model(),
+            ),
+            body_model=handler.body_model,
         )
 
 
@@ -357,9 +359,8 @@ class ConnectHandlerBuilder(HandlerBuilder[AsyncConnectHandler]):
             description=description,
             tags=tags,
             exceptions=list(cls.build_exceptions(handler)),
-            ack_code=None,
-            ack_body_schema=None,
-            event_body_model=handler.body_model,
+            body_model=handler.body_model,
+            ack=None,
         )
 
 
@@ -397,9 +398,8 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
             description=description,
             tags=tags,
             exceptions=[],
-            ack_code=None,
-            ack_body_schema=None,
-            event_body_model=None,
+            body_model=None,
+            ack=None,
         )
 
 
