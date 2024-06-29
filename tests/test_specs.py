@@ -108,7 +108,48 @@ from tests.example.main import tmex
         ),
     ],
 )
-def test_specs(event_name: str, handler_spec: dict[str, Any]) -> None:
+def test_handler_specs(event_name: str, handler_spec: dict[str, Any]) -> None:
     result = tmex.event_handlers.get(event_name)
     assert isinstance(result, tuple)
     assert_contains(asdict(result[1]), handler_spec)
+
+
+@pytest.mark.parametrize(
+    ("event_name", "emitter_spec"),
+    [
+        pytest.param(
+            "new-hello",
+            {
+                "summary": None,
+                "description": None,
+                "tags": ["collection sio"],
+                "body_model": Any,  # HelloModel
+            },
+            id="new-hello",
+        ),
+        pytest.param(
+            "update-hello",
+            {
+                "summary": None,
+                "description": None,
+                "tags": ["entries sio"],
+                "body_model": Any,  # HelloModel
+            },
+            id="update-hello",
+        ),
+        pytest.param(
+            "delete-hello",
+            {
+                "summary": None,
+                "description": None,
+                "tags": ["deleter", "entries sio"],
+                "body_model": Any,  # dict[str, Any] / {hello_id: str}
+            },
+            id="delete-hello",
+        ),
+    ],
+)
+def test_emitter_specs(event_name: str, emitter_spec: dict[str, Any]) -> None:
+    result = tmex.event_emitters.get(event_name)
+    assert result is not None
+    assert_contains(asdict(result), emitter_spec)

@@ -18,10 +18,13 @@ async def list_hellos(
     return HelloModel.find_all()
 
 
+new_hello = router.register_server_emitter(HelloModel, event_name="new-hello")
+
+
 @router.on("create-hello")
 async def create_hello(
     hello_data: Annotated[HelloSchema, Field(alias="hello")],
-    duplex_emitter: Emitter[HelloModel],
+    duplex_emitter: Annotated[Emitter[HelloModel], new_hello],
 ) -> Annotated[HelloModel, PydanticPackager(HelloModel, code=201)]:
     hello = HelloModel.create(hello_data)
     await duplex_emitter.emit(hello, target=ROOM_NAME)

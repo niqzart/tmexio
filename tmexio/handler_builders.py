@@ -58,6 +58,7 @@ class BuilderContext:
         default_factory=dict
     )
     possible_exceptions: set[EventException] = field(default_factory=set)
+    duplex_emitter_model: TypeAdapter[Any] | type[BaseModel] | None = None
 
     def build_marker_definitions(self) -> list[markers.Marker[Any]]:
         return list(self.marker_definitions)
@@ -146,29 +147,13 @@ class RunnableBuilder:
         self.context.marker_definitions.add(marker)
         self.marker_destinations.add(marker, field_name)
 
-    def add_event_emitter(
-        self, emitted_type: Any, event_name: str, field_name: str
-    ) -> None:
-        adapter = TypeAdapter(emitted_type)
-        self.add_marker_destination(
-            marker=markers.ServerEmitterMarker(adapter=adapter, event_name=event_name),
-            field_name=field_name,
+    def add_duplex_emitter(self, body_annotation: Any, field_name: str) -> None:
+        marker: markers.ServerEmitterMarker[Any] = markers.ServerEmitterMarker(
+            body_annotation=body_annotation,
+            event_name=self.context.event_name,
         )
-
-    def parse_event_emitter(self, args: tuple[Any, ...], field_name: str) -> None:
-        if not isinstance(args[1], str):
-            raise TypeError("Emitters can only be annotated with a string")
-
-        emitter_args = get_args(args[0])
-        if len(emitter_args) != 1:
-            raise TypeError("Emitters can only have one type argument")
-
-        return self.add_event_emitter(emitter_args[0], args[1], field_name)
-
-    def parse_duplex_event_emitter(self, annotation: Any, field_name: str) -> None:
-        return self.parse_event_emitter(
-            (annotation, self.context.event_name), field_name
-        )
+        self.context.duplex_emitter_model = marker.adapter
+        self.add_marker_destination(marker=marker, field_name=field_name)
 
     def add_body_field(self, field_name: str, parameter_annotation: Any) -> None:
         if get_origin(parameter_annotation) is not Annotated:
@@ -209,7 +194,7 @@ class RunnableBuilder:
         annotation = parameter.annotation
 
         if get_origin(annotation) is Emitter:
-            return self.parse_duplex_event_emitter(annotation, parameter.name)
+            return self.add_duplex_emitter(get_args(annotation)[0], parameter.name)
 
         if isinstance(annotation, type):
             marker = self.type_to_marker.get(annotation)
@@ -223,7 +208,7 @@ class RunnableBuilder:
             if isinstance(args[1], Depends):
                 return self.add_dependency_destination(args[1], parameter.name)
             if get_origin(args[0]) is Emitter:
-                return self.parse_event_emitter(args, parameter.name)
+                return self.add_duplex_emitter(args[1], parameter.name)
         self.add_body_field(parameter.name, parameter.annotation)
 
     def parse_parameters(self) -> None:

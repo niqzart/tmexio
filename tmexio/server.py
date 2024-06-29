@@ -253,14 +253,15 @@ class Emitter(Generic[T]):
         self,
         server: AsyncServer,
         event_name: str,
-        adapter: TypeAdapter[T],
+        adapter: TypeAdapter[Any],
     ) -> None:
         self.server = server
         self.event_name = event_name
         self.adapter = adapter
 
     def dump_data(self, data: T) -> Any:
-        return self.adapter.dump_python(data, mode="json")
+        validated_data = self.adapter.validate_python(data)
+        return self.adapter.dump_python(validated_data, mode="json")
 
     async def emit(
         self,

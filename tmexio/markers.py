@@ -1,4 +1,4 @@
-from typing import Annotated, Generic, TypeVar
+from typing import Annotated, Any, Generic, TypeVar
 
 from pydantic import TypeAdapter
 
@@ -39,9 +39,9 @@ class ClientEventMarker(Marker[ClientEvent]):
 
 
 class ServerEmitterMarker(Marker[Emitter[T]]):
-    def __init__(self, adapter: TypeAdapter[T], event_name: str) -> None:
+    def __init__(self, body_annotation: Any, event_name: str) -> None:
         self.event_name = event_name
-        self.adapter = adapter
+        self.adapter = TypeAdapter(body_annotation)
 
     def extract(self, event: ClientEvent) -> Emitter[T]:
         return Emitter(

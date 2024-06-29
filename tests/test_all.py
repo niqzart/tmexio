@@ -82,7 +82,7 @@ async def test_creating(
         expected_body={"id": str, "text": "something", "created": datetime},
         expected_code=201,
     )
-    assert_contains(listener_client.event_pop("create-hello"), ack)
+    assert_contains(listener_client.event_pop("new-hello"), ack)
 
 
 @pytest.mark.parametrize("argument_count", [0, 2], ids=["nothing", "too_many"])
