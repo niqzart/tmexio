@@ -1,6 +1,8 @@
 from typing import Annotated, Generic, TypeVar
 
-from tmexio.server import AsyncServer, AsyncSocket
+from pydantic import TypeAdapter
+
+from tmexio.server import AsyncServer, AsyncSocket, Emitter
 from tmexio.structures import ClientEvent
 
 T = TypeVar("T")
@@ -34,6 +36,19 @@ class AsyncSocketMarker(Marker[AsyncSocket]):
 class ClientEventMarker(Marker[ClientEvent]):
     def extract(self, event: ClientEvent) -> ClientEvent:
         return event
+
+
+class ServerEmitterMarker(Marker[Emitter[T]]):
+    def __init__(self, adapter: TypeAdapter[T], event_name: str) -> None:
+        self.event_name = event_name
+        self.adapter = adapter
+
+    def extract(self, event: ClientEvent) -> Emitter[T]:
+        return Emitter(
+            server=event.server,
+            event_name=self.event_name,
+            adapter=self.adapter,
+        )
 
 
 Sid = Annotated[str, SidMarker()]

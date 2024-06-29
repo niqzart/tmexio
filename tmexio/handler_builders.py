@@ -15,7 +15,7 @@ from inspect import (
 from typing import Annotated, Any, Generic, TypeVar, get_args, get_origin
 
 from asgiref.sync import sync_to_async
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, TypeAdapter, create_model
 
 from tmexio import markers, packagers
 from tmexio.event_handlers import (
@@ -28,7 +28,7 @@ from tmexio.event_handlers import (
     ValueDependency,
 )
 from tmexio.exceptions import EventException
-from tmexio.server import AsyncServer, AsyncSocket
+from tmexio.server import AsyncServer, AsyncSocket, Emitter
 from tmexio.specs import AckSpec, HandlerSpec
 from tmexio.structures import ClientEvent
 from tmexio.types import DependencyCacheKey
@@ -145,6 +145,25 @@ class RunnableBuilder:
         self.context.marker_definitions.add(marker)
         self.marker_destinations.add(marker, field_name)
 
+    def add_event_emitter(
+        self, emitted_type: Any, event_name: str, field_name: str
+    ) -> None:
+        adapter = TypeAdapter(emitted_type)
+        self.add_marker_destination(
+            marker=markers.ServerEmitterMarker(adapter=adapter, event_name=event_name),
+            field_name=field_name,
+        )
+
+    def parse_event_emitter(self, args: tuple[Any, ...], field_name: str) -> None:
+        if not isinstance(args[1], str):
+            raise TypeError("Emitters can only be annotated with a string")
+
+        emitter_args = get_args(args[0])
+        if len(emitter_args) != 1:
+            raise TypeError("Emitters can only have one type argument")
+
+        return self.add_event_emitter(emitter_args[0], args[1], field_name)
+
     def add_body_field(self, field_name: str, parameter_annotation: Any) -> None:
         if get_origin(parameter_annotation) is not Annotated:
             parameter_annotation = parameter_annotation, ...
@@ -186,22 +205,16 @@ class RunnableBuilder:
             marker = self.type_to_marker.get(annotation)
             if marker is not None:
                 annotation = Annotated[annotation, marker]
-        args = get_args(annotation)
 
-        if (  # noqa: WPS337
-            get_origin(annotation) is Annotated
-            and len(args) == 2
-            and isinstance(args[1], markers.Marker)
-        ):
-            self.add_marker_destination(args[1], parameter.name)
-        elif (  # noqa: WPS337
-            get_origin(annotation) is Annotated
-            and len(args) == 2
-            and isinstance(args[1], Depends)
-        ):
-            self.add_dependency_destination(args[1], parameter.name)
-        else:
-            self.add_body_field(parameter.name, parameter.annotation)
+        args = get_args(annotation)
+        if get_origin(annotation) is Annotated and len(args) == 2:
+            if isinstance(args[1], markers.Marker):
+                return self.add_marker_destination(args[1], parameter.name)
+            if isinstance(args[1], Depends):
+                return self.add_dependency_destination(args[1], parameter.name)
+            if get_origin(args[0]) is Emitter:
+                return self.parse_event_emitter(args, parameter.name)
+        self.add_body_field(parameter.name, parameter.annotation)
 
     def parse_parameters(self) -> None:
         for parameter in self.signature.parameters.values():
