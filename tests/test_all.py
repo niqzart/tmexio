@@ -110,7 +110,7 @@ async def test_creating_wrong_arguments(
             {
                 "type": "model_type",
                 "loc": [],
-                "msg": "Input should be a valid dictionary or instance of Model",
+                "msg": "Input should be a valid dictionary or instance of create-hello.InputModel",
             }
         ],
         expected_code=422,

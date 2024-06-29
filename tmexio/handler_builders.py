@@ -48,6 +48,7 @@ class Depends:
 
 @dataclass()
 class BuilderContext:
+    event_name: str
     marker_definitions: set[markers.Marker[Any]] = field(default_factory=set)
     body_annotations: dict[str, Any] = field(default_factory=dict)
     dependency_definitions: dict[DependencyCacheKey, BaseDependency] = field(
@@ -65,7 +66,7 @@ class BuilderContext:
         if not self.body_annotations:
             return None
         return create_model(
-            "Model",  # TODO better naming
+            f"{self.event_name}.InputModel",
             **self.body_annotations,
         )
 
@@ -122,14 +123,11 @@ class RunnableBuilder:
 
     def __init__(
         self,
-        event_name: str,
         function: Callable[..., Any],
         possible_exceptions: list[EventException],
         sub_dependencies: list[Depends],
         builder_context: BuilderContext,
     ) -> None:
-        self.event_name = event_name
-
         self.function = function
         self.signature: Signature = signature(function)
 
@@ -168,7 +166,9 @@ class RunnableBuilder:
         return self.add_event_emitter(emitter_args[0], args[1], field_name)
 
     def parse_duplex_event_emitter(self, annotation: Any, field_name: str) -> None:
-        return self.parse_event_emitter((annotation, self.event_name), field_name)
+        return self.parse_event_emitter(
+            (annotation, self.context.event_name), field_name
+        )
 
     def add_body_field(self, field_name: str, parameter_annotation: Any) -> None:
         if get_origin(parameter_annotation) is not Annotated:
@@ -180,7 +180,6 @@ class RunnableBuilder:
     def build_sub_dependency(self, depends: Depends) -> None:
         # TODO reuse built dependencies from building other handlers
         self.context.dependency_definitions[depends.function] = DependencyBuilder(
-            event_name=self.event_name,
             function=depends.function,
             possible_exceptions=depends.exceptions,
             sub_dependencies=depends.dependencies,
@@ -192,7 +191,6 @@ class RunnableBuilder:
             return
 
         dependency = DependencyBuilder(
-            event_name=self.event_name,
             function=depends.function,
             possible_exceptions=depends.exceptions,
             sub_dependencies=depends.dependencies,
@@ -274,11 +272,10 @@ class HandlerBuilder(RunnableBuilder, Generic[HandlerType]):
         sub_dependencies: list[Depends],
     ) -> None:
         super().__init__(
-            event_name=event_name,
             function=function,
             possible_exceptions=possible_exceptions,
             sub_dependencies=sub_dependencies,
-            builder_context=BuilderContext(),
+            builder_context=BuilderContext(event_name=event_name),
         )
 
     def build_handler(self) -> HandlerType:
