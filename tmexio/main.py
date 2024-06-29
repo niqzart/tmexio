@@ -64,6 +64,7 @@ class EventRouter:
 
         def on_inner(function: Callable[..., Any]) -> Callable[..., Any]:
             handler = handler_builder_class(
+                event_name=event_name,
                 function=function,
                 possible_exceptions=exceptions or [],
                 sub_dependencies=self.default_dependencies + (dependencies or []),

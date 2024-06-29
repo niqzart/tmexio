@@ -21,10 +21,10 @@ async def list_hellos(
 @router.on("create-hello")
 async def create_hello(
     hello_data: Annotated[HelloSchema, Field(alias="hello")],
-    hello_emitter: Annotated[Emitter[HelloModel], "create-hello"],
+    duplex_emitter: Emitter[HelloModel],
 ) -> Annotated[HelloModel, PydanticPackager(HelloModel, code=201)]:
     hello = HelloModel.create(hello_data)
-    await hello_emitter.emit(hello, target=ROOM_NAME)
+    await duplex_emitter.emit(hello, target=ROOM_NAME)
     return hello
 
 

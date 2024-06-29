@@ -40,7 +40,7 @@ extend-ignore =
   # fails to same-name class and instance attributes (pydantic & sqlalchemy)
   WPS601
   # too many
-  WPS201 WPS202 WPS204 WPS210 WPS211 WPS214 WPS218 WPS219 WPS212 WPS221 WPS227 WPS231 WPS232 WPS234 WPS235
+  WPS201 WPS202 WPS204 WPS210 WPS211 WPS214 WPS218 WPS219 WPS212 WPS221 WPS227 WPS230 WPS231 WPS232 WPS234 WPS235
 
   # # don't block features
   # utils is a module name

@@ -122,11 +122,14 @@ class RunnableBuilder:
 
     def __init__(
         self,
+        event_name: str,
         function: Callable[..., Any],
         possible_exceptions: list[EventException],
         sub_dependencies: list[Depends],
         builder_context: BuilderContext,
     ) -> None:
+        self.event_name = event_name
+
         self.function = function
         self.signature: Signature = signature(function)
 
@@ -164,6 +167,9 @@ class RunnableBuilder:
 
         return self.add_event_emitter(emitter_args[0], args[1], field_name)
 
+    def parse_duplex_event_emitter(self, annotation: Any, field_name: str) -> None:
+        return self.parse_event_emitter((annotation, self.event_name), field_name)
+
     def add_body_field(self, field_name: str, parameter_annotation: Any) -> None:
         if get_origin(parameter_annotation) is not Annotated:
             parameter_annotation = parameter_annotation, ...
@@ -174,6 +180,7 @@ class RunnableBuilder:
     def build_sub_dependency(self, depends: Depends) -> None:
         # TODO reuse built dependencies from building other handlers
         self.context.dependency_definitions[depends.function] = DependencyBuilder(
+            event_name=self.event_name,
             function=depends.function,
             possible_exceptions=depends.exceptions,
             sub_dependencies=depends.dependencies,
@@ -185,6 +192,7 @@ class RunnableBuilder:
             return
 
         dependency = DependencyBuilder(
+            event_name=self.event_name,
             function=depends.function,
             possible_exceptions=depends.exceptions,
             sub_dependencies=depends.dependencies,
@@ -201,6 +209,10 @@ class RunnableBuilder:
 
     def parse_parameter(self, parameter: Parameter) -> None:
         annotation = parameter.annotation
+
+        if get_origin(annotation) is Emitter:
+            return self.parse_duplex_event_emitter(annotation, parameter.name)
+
         if isinstance(annotation, type):
             marker = self.type_to_marker.get(annotation)
             if marker is not None:
@@ -256,11 +268,13 @@ HandlerType = TypeVar("HandlerType", bound=BaseAsyncHandler)
 class HandlerBuilder(RunnableBuilder, Generic[HandlerType]):
     def __init__(
         self,
+        event_name: str,
         function: Callable[..., Any],
         possible_exceptions: list[EventException],
         sub_dependencies: list[Depends],
     ) -> None:
         super().__init__(
+            event_name=event_name,
             function=function,
             possible_exceptions=possible_exceptions,
             sub_dependencies=sub_dependencies,
