@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from logging import Logger
 from typing import Any, Literal
 
@@ -48,7 +49,7 @@ class EventRouter:
         handler: BaseAsyncHandler,
         spec: HandlerSpec,
     ) -> None:
-        spec.tags.extend(self.default_tags)
+        spec.tags = [*spec.tags, *self.default_tags]
         self.event_handlers[event_name] = handler, spec
 
     def on(
@@ -130,7 +131,7 @@ class EventRouter:
 
     def include_router(self, router: EventRouter) -> None:
         for event_name, (handler, spec) in router.event_handlers.items():
-            self.add_handler(event_name, handler, spec)
+            self.add_handler(event_name, handler, deepcopy(spec))
 
 
 class TMEXIO(EventRouter):
