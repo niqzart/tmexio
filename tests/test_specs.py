@@ -19,7 +19,9 @@ from tests.example.main import tmex
                 "tags": ["collection sio"],
                 "body_model": None,
                 "ack": {"code": 200},
-                "exceptions": [Any],  # BaseAsyncHandler.zero_arguments_expected_error
+                "exceptions": [
+                    [422, "Event expects zero arguments"],
+                ],
             },
             None,
             "list[HelloModel]",
@@ -32,7 +34,9 @@ from tests.example.main import tmex
                 "description": None,
                 "tags": ["collection sio"],
                 "ack": {"code": 201},
-                "exceptions": [Any],  # BaseAsyncHandler.zero_arguments_expected_error
+                "exceptions": [
+                    [422, "Event expects one argument"],
+                ],
             },
             {"hello_data": "HelloSchema"},
             "HelloModel",
@@ -46,7 +50,9 @@ from tests.example.main import tmex
                 "tags": ["collection sio"],
                 "body_model": None,
                 "ack": {"code": 204},
-                "exceptions": [Any],  # BaseAsyncHandler.zero_arguments_expected_error
+                "exceptions": [
+                    [422, "Event expects zero arguments"],
+                ],
             },
             None,
             "none",
@@ -59,10 +65,10 @@ from tests.example.main import tmex
                 "description": None,
                 "tags": ["entries sio"],
                 "ack": {"code": 200},
-                "exceptions": [Any, Any],
-                # Exceptions:
-                #   not_found_exception,
-                #   BaseAsyncHandler.zero_arguments_expected_error
+                "exceptions": [
+                    [404, "Hello not found"],
+                    [422, "Event expects one argument"],
+                ],
             },
             {"hello_data": "HelloSchema", "hello_id": "str"},
             "HelloModel",
@@ -75,7 +81,9 @@ from tests.example.main import tmex
                 "description": None,
                 "tags": ["deleter", "entries sio"],
                 "ack": {"code": 204},
-                "exceptions": [Any],  # BaseAsyncHandler.zero_arguments_expected_error
+                "exceptions": [
+                    [422, "Event expects one argument"],
+                ],
             },
             {"hello_id": "str"},
             "none",
@@ -88,10 +96,10 @@ from tests.example.main import tmex
                 "description": None,
                 "tags": ["entries sio"],
                 "ack": {"code": 200},
-                "exceptions": [Any, Any],
-                # Exceptions:
-                #   not_found_exception,
-                #   BaseAsyncHandler.zero_arguments_expected_error
+                "exceptions": [
+                    [404, "Hello not found"],
+                    [422, "Event expects one argument"],
+                ],
             },
             {"hello_id": "str"},
             "HelloModel",
@@ -108,6 +116,10 @@ def test_handler_specs(
     result = tmex.event_handlers.get(event_name)
     assert isinstance(result, tuple)
     result_dict = asdict(result[1])
+    result_dict["exceptions"] = [
+        list(getattr(exception, "args", ()))
+        for exception in result_dict.get("exceptions", ())
+    ]
 
     assert_contains(result_dict, handler_spec)
 
