@@ -251,11 +251,11 @@ T = TypeVar("T")
 class Emitter(Generic[T]):
     def __init__(
         self,
-        server: AsyncServer,
+        socket: AsyncSocket,
         event_name: str,
         adapter: TypeAdapter[Any],
     ) -> None:
-        self.server = server
+        self.socket = socket
         self.event_name = event_name
         self.adapter = adapter
 
@@ -268,15 +268,17 @@ class Emitter(Generic[T]):
         data: T,
         target: str | None = None,
         skip_sid: str | None = None,
+        exclude_self: bool = False,
         namespace: str | None = None,
         callback: CallbackProtocol | None = None,
         ignore_queue: bool = False,
     ) -> None:
-        await self.server.emit(
+        await self.socket.emit(
             event=self.event_name,
             data=self.dump_data(data),
             target=target,
             skip_sid=skip_sid,
+            exclude_self=exclude_self,
             namespace=namespace,
             callback=callback,
             ignore_queue=ignore_queue,
@@ -285,15 +287,13 @@ class Emitter(Generic[T]):
     async def call(
         self,
         data: T,
-        sid: str,
         namespace: str | None = None,
         timeout: int = 60,
         ignore_queue: bool = False,
     ) -> DataOrTuple:
-        return await self.server.call(
+        return await self.socket.call(
             event=self.event_name,
             data=self.dump_data(data),
-            sid=sid,
             namespace=namespace,
             timeout=timeout,
             ignore_queue=ignore_queue,

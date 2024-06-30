@@ -45,7 +45,7 @@ class ServerEmitterMarker(Marker[Emitter[T]]):
 
     def extract(self, event: ClientEvent) -> Emitter[T]:
         return Emitter(
-            server=event.server,
+            socket=event.socket,
             event_name=self.event_name,
             adapter=self.adapter,
         )
