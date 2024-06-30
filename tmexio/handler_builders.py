@@ -15,7 +15,7 @@ from inspect import (
 from typing import Annotated, Any, Generic, TypeVar, get_args, get_origin
 
 from asgiref.sync import sync_to_async
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, TypeAdapter, create_model
 
 from tmexio import markers, packagers
 from tmexio.event_handlers import (
@@ -28,8 +28,8 @@ from tmexio.event_handlers import (
     ValueDependency,
 )
 from tmexio.exceptions import EventException
-from tmexio.server import AsyncServer, AsyncSocket
-from tmexio.specs import HandlerSpec
+from tmexio.server import AsyncServer, AsyncSocket, Emitter
+from tmexio.specs import AckSpec, HandlerSpec
 from tmexio.structures import ClientEvent
 from tmexio.types import DependencyCacheKey
 
@@ -48,6 +48,7 @@ class Depends:
 
 @dataclass()
 class BuilderContext:
+    event_name: str
     marker_definitions: set[markers.Marker[Any]] = field(default_factory=set)
     body_annotations: dict[str, Any] = field(default_factory=dict)
     dependency_definitions: dict[DependencyCacheKey, BaseDependency] = field(
@@ -57,6 +58,7 @@ class BuilderContext:
         default_factory=dict
     )
     possible_exceptions: set[EventException] = field(default_factory=set)
+    duplex_emitter_model: TypeAdapter[Any] | type[BaseModel] | None = None
 
     def build_marker_definitions(self) -> list[markers.Marker[Any]]:
         return list(self.marker_definitions)
@@ -65,7 +67,7 @@ class BuilderContext:
         if not self.body_annotations:
             return None
         return create_model(
-            "Model",  # TODO better naming
+            f"{self.event_name}.InputModel",
             **self.body_annotations,
         )
 
@@ -145,6 +147,14 @@ class RunnableBuilder:
         self.context.marker_definitions.add(marker)
         self.marker_destinations.add(marker, field_name)
 
+    def add_duplex_emitter(self, body_annotation: Any, field_name: str) -> None:
+        marker: markers.ServerEmitterMarker[Any] = markers.ServerEmitterMarker(
+            body_annotation=body_annotation,
+            event_name=self.context.event_name,
+        )
+        self.context.duplex_emitter_model = marker.adapter
+        self.add_marker_destination(marker=marker, field_name=field_name)
+
     def add_body_field(self, field_name: str, parameter_annotation: Any) -> None:
         if get_origin(parameter_annotation) is not Annotated:
             parameter_annotation = parameter_annotation, ...
@@ -182,26 +192,24 @@ class RunnableBuilder:
 
     def parse_parameter(self, parameter: Parameter) -> None:
         annotation = parameter.annotation
+
+        if get_origin(annotation) is Emitter:
+            return self.add_duplex_emitter(get_args(annotation)[0], parameter.name)
+
         if isinstance(annotation, type):
             marker = self.type_to_marker.get(annotation)
             if marker is not None:
                 annotation = Annotated[annotation, marker]
-        args = get_args(annotation)
 
-        if (  # noqa: WPS337
-            get_origin(annotation) is Annotated
-            and len(args) == 2
-            and isinstance(args[1], markers.Marker)
-        ):
-            self.add_marker_destination(args[1], parameter.name)
-        elif (  # noqa: WPS337
-            get_origin(annotation) is Annotated
-            and len(args) == 2
-            and isinstance(args[1], Depends)
-        ):
-            self.add_dependency_destination(args[1], parameter.name)
-        else:
-            self.add_body_field(parameter.name, parameter.annotation)
+        args = get_args(annotation)
+        if get_origin(annotation) is Annotated and len(args) == 2:
+            if isinstance(args[1], markers.Marker):
+                return self.add_marker_destination(args[1], parameter.name)
+            if isinstance(args[1], Depends):
+                return self.add_dependency_destination(args[1], parameter.name)
+            if get_origin(args[0]) is Emitter:
+                return self.add_duplex_emitter(args[1], parameter.name)
+        self.add_body_field(parameter.name, parameter.annotation)
 
     def parse_parameters(self) -> None:
         for parameter in self.signature.parameters.values():
@@ -243,6 +251,7 @@ HandlerType = TypeVar("HandlerType", bound=BaseAsyncHandler)
 class HandlerBuilder(RunnableBuilder, Generic[HandlerType]):
     def __init__(
         self,
+        event_name: str,
         function: Callable[..., Any],
         possible_exceptions: list[EventException],
         sub_dependencies: list[Depends],
@@ -251,7 +260,7 @@ class HandlerBuilder(RunnableBuilder, Generic[HandlerType]):
             function=function,
             possible_exceptions=possible_exceptions,
             sub_dependencies=sub_dependencies,
-            builder_context=BuilderContext(),
+            builder_context=BuilderContext(event_name=event_name),
         )
 
     def build_handler(self) -> HandlerType:
@@ -271,6 +280,7 @@ class HandlerBuilder(RunnableBuilder, Generic[HandlerType]):
         handler: HandlerType,
         summary: str | None,
         description: str | None,
+        tags: list[str],
     ) -> HandlerSpec:
         raise NotImplementedError
 
@@ -312,14 +322,18 @@ class EventHandlerBuilder(HandlerBuilder[AsyncEventHandler]):
         handler: AsyncEventHandler,
         summary: str | None,
         description: str | None,
+        tags: list[str],
     ) -> HandlerSpec:
         return HandlerSpec(
             summary=summary,
             description=description,
+            tags=tags,
             exceptions=list(cls.build_exceptions(handler)),
-            ack_code=handler.ack_packager.code,
-            ack_body_schema=handler.ack_packager.body_json_schema(),
-            event_body_model=handler.body_model,
+            ack=AckSpec(
+                code=handler.ack_packager.code,
+                model=handler.ack_packager.build_body_model(),
+            ),
+            body_model=handler.body_model,
         )
 
 
@@ -347,14 +361,15 @@ class ConnectHandlerBuilder(HandlerBuilder[AsyncConnectHandler]):
         handler: AsyncConnectHandler,
         summary: str | None,
         description: str | None,
+        tags: list[str],
     ) -> HandlerSpec:
         return HandlerSpec(
             summary=summary,
             description=description,
+            tags=tags,
             exceptions=list(cls.build_exceptions(handler)),
-            ack_code=None,
-            ack_body_schema=None,
-            event_body_model=handler.body_model,
+            body_model=handler.body_model,
+            ack=None,
         )
 
 
@@ -385,14 +400,15 @@ class DisconnectHandlerBuilder(HandlerBuilder[AsyncDisconnectHandler]):
         handler: AsyncDisconnectHandler,
         summary: str | None,
         description: str | None,
+        tags: list[str],
     ) -> HandlerSpec:
         return HandlerSpec(
             summary=summary,
             description=description,
+            tags=tags,
             exceptions=[],
-            ack_code=None,
-            ack_body_schema=None,
-            event_body_model=None,
+            body_model=None,
+            ack=None,
         )
 
 

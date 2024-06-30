@@ -1,12 +1,12 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import Field
 
 from tests.example.common import ROOM_NAME, not_found_exception
 from tests.example.models_db import HelloModel, HelloSchema
-from tmexio import AsyncSocket, EventRouter, register_dependency
+from tmexio import Emitter, EventRouter, register_dependency
 
-router = EventRouter()
+router = EventRouter(tags=["entries sio"])
 
 
 @register_dependency()
@@ -31,18 +31,21 @@ HelloById = Annotated[HelloModel, get_hello_by_id]
 async def update_hello(
     hello: HelloById,
     hello_data: Annotated[HelloSchema, Field(alias="hello")],
-    socket: AsyncSocket,
+    duplex_emitter: Emitter[HelloModel],
 ) -> HelloModel:
     hello.update(hello_data)
-    await socket.emit("update-hello", hello.model_dump(mode="json"), target=ROOM_NAME)
+    await duplex_emitter.emit(hello, target=ROOM_NAME)
     return hello
 
 
-@router.on("delete-hello")
-async def delete_hello(hello: MaybeHelloById, socket: AsyncSocket) -> None:
+@router.on("delete-hello", tags=["deleter"])
+async def delete_hello(
+    hello: MaybeHelloById,
+    duplex_emitter: Emitter[dict[str, Any]],
+) -> None:
     if hello is not None:
         hello.delete()
-        await socket.emit("delete-hello", {"hello_id": hello.id}, target=ROOM_NAME)
+        await duplex_emitter.emit({"hello_id": hello.id}, target=ROOM_NAME)
 
 
 @router.on("retrieve-hello")

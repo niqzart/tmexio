@@ -1,7 +1,8 @@
 from contextlib import AbstractAsyncContextManager
-from typing import Any, Literal, cast
+from typing import Any, Generic, Literal, TypeVar, cast
 
 import socketio  # type: ignore[import-untyped]
+from pydantic import TypeAdapter
 
 from tmexio.types import CallbackProtocol, DataOrTuple, DataType
 
@@ -240,5 +241,60 @@ class AsyncSocket:
         await self.server.disconnect(
             sid=self.sid,
             namespace=namespace,
+            ignore_queue=ignore_queue,
+        )
+
+
+T = TypeVar("T")
+
+
+class Emitter(Generic[T]):
+    def __init__(
+        self,
+        server: AsyncServer,
+        event_name: str,
+        adapter: TypeAdapter[Any],
+    ) -> None:
+        self.server = server
+        self.event_name = event_name
+        self.adapter = adapter
+
+    def dump_data(self, data: T) -> Any:
+        validated_data = self.adapter.validate_python(data)
+        return self.adapter.dump_python(validated_data, mode="json")
+
+    async def emit(
+        self,
+        data: T,
+        target: str | None = None,
+        skip_sid: str | None = None,
+        namespace: str | None = None,
+        callback: CallbackProtocol | None = None,
+        ignore_queue: bool = False,
+    ) -> None:
+        await self.server.emit(
+            event=self.event_name,
+            data=self.dump_data(data),
+            target=target,
+            skip_sid=skip_sid,
+            namespace=namespace,
+            callback=callback,
+            ignore_queue=ignore_queue,
+        )
+
+    async def call(
+        self,
+        data: T,
+        sid: str,
+        namespace: str | None = None,
+        timeout: int = 60,
+        ignore_queue: bool = False,
+    ) -> DataOrTuple:
+        return await self.server.call(
+            event=self.event_name,
+            data=self.dump_data(data),
+            sid=sid,
+            namespace=namespace,
+            timeout=timeout,
             ignore_queue=ignore_queue,
         )

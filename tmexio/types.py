@@ -1,6 +1,8 @@
 from collections.abc import Awaitable, Callable, MutableMapping
 from typing import Any, Protocol
 
+from pydantic import BaseModel, TypeAdapter
+
 AnyKwargs = dict[str, Any]
 AnyCallable = Callable[..., Any]
 DependencyCacheKey = AnyCallable
@@ -24,3 +26,6 @@ Send = Callable[[Message], Awaitable[None]]
 class ASGIAppProtocol(Protocol):
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         pass
+
+
+ModelType = TypeAdapter[Any] | type[BaseModel]

@@ -5,9 +5,9 @@ from pydantic import Field
 
 from tests.example.common import ROOM_NAME
 from tests.example.models_db import HelloModel, HelloSchema
-from tmexio import AsyncSocket, EventRouter, PydanticPackager
+from tmexio import AsyncSocket, Emitter, EventRouter, PydanticPackager
 
-router = EventRouter()
+router = EventRouter(tags=["collection sio"])
 
 
 @router.on("list-hellos")
@@ -18,13 +18,16 @@ async def list_hellos(
     return HelloModel.find_all()
 
 
+new_hello = router.register_server_emitter(HelloModel, event_name="new-hello")
+
+
 @router.on("create-hello")
 async def create_hello(
     hello_data: Annotated[HelloSchema, Field(alias="hello")],
-    socket: AsyncSocket,
+    duplex_emitter: Annotated[Emitter[HelloModel], new_hello],
 ) -> Annotated[HelloModel, PydanticPackager(HelloModel, code=201)]:
     hello = HelloModel.create(hello_data)
-    await socket.emit("create-hello", hello.model_dump(mode="json"), target=ROOM_NAME)
+    await duplex_emitter.emit(hello, target=ROOM_NAME)
     return hello
 
 
