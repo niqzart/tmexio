@@ -2,13 +2,14 @@ from dataclasses import asdict
 from typing import Any
 
 import pytest
+from pydantic import BaseModel, TypeAdapter
 from pydantic_marshals.contains import assert_contains
 
 from tests.example.main import tmex
 
 
 @pytest.mark.parametrize(
-    ("event_name", "handler_spec"),
+    ("event_name", "handler_spec", "expected_body_model", "expected_ack_model"),
     [
         pytest.param(
             "list-hellos",
@@ -17,12 +18,11 @@ from tests.example.main import tmex
                 "description": None,
                 "tags": ["collection sio"],
                 "body_model": None,
-                "ack": {
-                    "code": 200,
-                    "model": Any,  # list[HelloModel]
-                },
+                "ack": {"code": 200},
                 "exceptions": [Any],  # BaseAsyncHandler.zero_arguments_expected_error
             },
+            None,
+            "list[HelloModel]",
             id="list_hellos",
         ),
         pytest.param(
@@ -31,13 +31,11 @@ from tests.example.main import tmex
                 "summary": None,
                 "description": None,
                 "tags": ["collection sio"],
-                "body_model": Any,  # {hello: HelloSchema}
-                "ack": {
-                    "code": 201,
-                    "model": Any,  # list[HelloModel]
-                },
+                "ack": {"code": 201},
                 "exceptions": [Any],  # BaseAsyncHandler.zero_arguments_expected_error
             },
+            {"hello_data": "HelloSchema"},
+            "HelloModel",
             id="create-hello",
         ),
         pytest.param(
@@ -47,12 +45,11 @@ from tests.example.main import tmex
                 "description": None,
                 "tags": ["collection sio"],
                 "body_model": None,
-                "ack": {
-                    "code": 204,
-                    "model": Any,  # None
-                },
+                "ack": {"code": 204},
                 "exceptions": [Any],  # BaseAsyncHandler.zero_arguments_expected_error
             },
+            None,
+            "none",
             id="close-hellos",
         ),
         pytest.param(
@@ -61,16 +58,14 @@ from tests.example.main import tmex
                 "summary": None,
                 "description": None,
                 "tags": ["entries sio"],
-                "body_model": Any,  # {hello: HelloSchema, hello_id: str}
-                "ack": {
-                    "code": 200,
-                    "model": Any,  # HelloModel
-                },
+                "ack": {"code": 200},
                 "exceptions": [Any, Any],
                 # Exceptions:
                 #   not_found_exception,
                 #   BaseAsyncHandler.zero_arguments_expected_error
             },
+            {"hello_data": "HelloSchema", "hello_id": "str"},
+            "HelloModel",
             id="update-hello",
         ),
         pytest.param(
@@ -79,13 +74,11 @@ from tests.example.main import tmex
                 "summary": None,
                 "description": None,
                 "tags": ["deleter", "entries sio"],
-                "body_model": Any,  # {hello_id: str}
-                "ack": {
-                    "code": 204,
-                    "model": Any,  # None
-                },
+                "ack": {"code": 204},
                 "exceptions": [Any],  # BaseAsyncHandler.zero_arguments_expected_error
             },
+            {"hello_id": "str"},
+            "none",
             id="delete-hello",
         ),
         pytest.param(
@@ -94,28 +87,51 @@ from tests.example.main import tmex
                 "summary": None,
                 "description": None,
                 "tags": ["entries sio"],
-                "body_model": Any,  # {hello_id: str}
-                "ack": {
-                    "code": 200,
-                    "model": Any,  # HelloModel
-                },
+                "ack": {"code": 200},
                 "exceptions": [Any, Any],
                 # Exceptions:
                 #   not_found_exception,
                 #   BaseAsyncHandler.zero_arguments_expected_error
             },
+            {"hello_id": "str"},
+            "HelloModel",
             id="retrieve-hello",
         ),
     ],
 )
-def test_handler_specs(event_name: str, handler_spec: dict[str, Any]) -> None:
+def test_handler_specs(
+    event_name: str,
+    handler_spec: dict[str, Any],
+    expected_body_model: dict[str, str] | None,
+    expected_ack_model: str,
+) -> None:
     result = tmex.event_handlers.get(event_name)
     assert isinstance(result, tuple)
-    assert_contains(asdict(result[1]), handler_spec)
+    result_dict = asdict(result[1])
+
+    assert_contains(result_dict, handler_spec)
+
+    real_body_model = result_dict.get("body_model")
+    if expected_body_model is None:
+        assert real_body_model is None
+    else:
+        assert isinstance(real_body_model, type)
+        assert issubclass(real_body_model, BaseModel)
+        assert_contains(
+            {
+                k: str(list(v.__repr_args__())[0][1])
+                for k, v in real_body_model.model_fields.items()
+            },
+            expected_body_model,
+        )
+
+    real_ack_model = result_dict["ack"].get("model")
+    assert isinstance(real_ack_model, TypeAdapter)
+    assert real_ack_model.validator.title == expected_ack_model
 
 
 @pytest.mark.parametrize(
-    ("event_name", "emitter_spec"),
+    ("event_name", "emitter_spec", "expected_body_model"),
     [
         pytest.param(
             "new-hello",
@@ -123,8 +139,8 @@ def test_handler_specs(event_name: str, handler_spec: dict[str, Any]) -> None:
                 "summary": None,
                 "description": None,
                 "tags": ["collection sio"],
-                "body_model": Any,  # HelloModel
             },
+            "HelloModel",
             id="new-hello",
         ),
         pytest.param(
@@ -133,8 +149,8 @@ def test_handler_specs(event_name: str, handler_spec: dict[str, Any]) -> None:
                 "summary": None,
                 "description": None,
                 "tags": ["entries sio"],
-                "body_model": Any,  # HelloModel
             },
+            "HelloModel",
             id="update-hello",
         ),
         pytest.param(
@@ -143,13 +159,21 @@ def test_handler_specs(event_name: str, handler_spec: dict[str, Any]) -> None:
                 "summary": None,
                 "description": None,
                 "tags": ["deleter", "entries sio"],
-                "body_model": Any,  # dict[str, Any] / {hello_id: str}
             },
+            "dict[str,any]",  # {hello_id: str}
             id="delete-hello",
         ),
     ],
 )
-def test_emitter_specs(event_name: str, emitter_spec: dict[str, Any]) -> None:
+def test_emitter_specs(
+    event_name: str, emitter_spec: dict[str, Any], expected_body_model: str
+) -> None:
     result = tmex.event_emitters.get(event_name)
     assert result is not None
-    assert_contains(asdict(result), emitter_spec)
+    result_dict = asdict(result)
+
+    assert_contains(result_dict, emitter_spec)
+
+    real_body_model = result_dict.get("body_model")
+    assert isinstance(real_body_model, TypeAdapter)
+    assert real_body_model.validator.title == expected_body_model
