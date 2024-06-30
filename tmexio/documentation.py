@@ -19,8 +19,9 @@ class ValidationErrorModel(BaseModel):
 
 
 class DocumentationBuilder:
-    def __init__(self, tmexio: TMEXIO) -> None:
+    def __init__(self, tmexio: TMEXIO, model_prefix: str = "") -> None:
         self.tmexio = tmexio
+        self.model_prefix = model_prefix
 
     def collect_models(self) -> Iterable[tuple[ModelType, JsonSchemaMode]]:
         for _, handler_spec in self.tmexio.event_handlers.values():
@@ -39,12 +40,14 @@ class DocumentationBuilder:
             return model.core_schema
         return model.__pydantic_core_schema__
 
-    def build_json_schema(self, ref_template: str, model_prefix: str = "") -> tuple[
+    def build_json_schema(self, ref_template: str) -> tuple[
         dict[tuple[ModelType, JsonSchemaMode], JsonSchemaValue],
         dict[str, JsonSchemaValue],
     ]:
         generator = GenerateJsonSchema(
-            ref_template=ref_template.replace("{model}", f"{model_prefix}{{model}}")
+            ref_template=ref_template.replace(
+                "{model}", f"{self.model_prefix}{{model}}"
+            )
         )
         json_schemas_map, json_schema = generator.generate_definitions(
             [
@@ -53,5 +56,5 @@ class DocumentationBuilder:
             ]
         )
         return json_schemas_map, {
-            f"{model_prefix}{key}": value for key, value in json_schema.items()
+            f"{self.model_prefix}{key}": value for key, value in json_schema.items()
         }
