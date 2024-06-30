@@ -1,15 +1,13 @@
 from dataclasses import dataclass
-from typing import Any
-
-from pydantic import BaseModel, TypeAdapter
 
 from tmexio.exceptions import EventException
+from tmexio.types import ModelType
 
 
 @dataclass()
 class AckSpec:
     code: int
-    model: TypeAdapter[Any] | type[BaseModel] | None
+    model: ModelType | None
 
 
 @dataclass()
@@ -17,7 +15,7 @@ class HandlerSpec:
     summary: str | None
     description: str | None
     tags: list[str]
-    body_model: TypeAdapter[Any] | type[BaseModel] | None
+    body_model: ModelType | None
     ack: AckSpec | None
     exceptions: list[EventException]
 
@@ -27,4 +25,4 @@ class EmitterSpec:
     summary: str | None
     description: str | None
     tags: list[str]
-    body_model: TypeAdapter[Any] | type[BaseModel]
+    body_model: ModelType

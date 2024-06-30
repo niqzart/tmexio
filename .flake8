@@ -22,7 +22,7 @@ extend-ignore =
   # # black
   WPS317 WPS348 WPS352 E501 C812 C815 C816
   # # weird
-  PIE803 C101 FNE003 FNE008 N812 ANN101 ANN102 WPS110 WPS111 WPS338 WPS434 WPS440 VNE001 CM001
+  PIE803 C101 FNE003 FNE008 N812 ANN101 ANN102 WPS110 WPS111 WPS338 WPS434 WPS440 WPS526 VNE001 CM001
   # # broken
   PIE798 WPS226 WPS324 WPS354 WPS407 WPS432 WPS473 WPS507
   # fails to understand `raise NotImplementedError` and overloading
@@ -49,6 +49,8 @@ extend-ignore =
   WPS237 WPS305
   # python 2.x is deprecated
   WPS306
+  # multiline annotations
+  WPS320
   # pass is a thing
   WPS420 WPS604
   # nested functions
